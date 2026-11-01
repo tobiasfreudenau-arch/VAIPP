@@ -1,7 +1,7 @@
 {
-  "name": "VIP Fahrzeugübergabe",
-  "short_name": "VIP Übergabe",
-  "description": "Digitale Fahrzeugübergabeprotokolle der VIP Freudenau GmbH",
+  "name": "VIP Freudenau GmbH App",
+  "short_name": "VIP Freudenau",
+  "description": "Mitarbeiter-App der VIP Freudenau GmbH – Fahrzeugübergabe, Dienstplan, Urlaub",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

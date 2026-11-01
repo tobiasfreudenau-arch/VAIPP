@@ -1,4 +1,4 @@
-// VIP Fahrzeugübergabe – App-Logik (Router, Ansichten, Protokoll-Assistent)
+// VIP Freudenau GmbH App – App-Logik (Router, Ansichten, Protokoll-Assistent)
 (function () {
   const t = I18N.t;
   const $ = (s, el) => (el || document).querySelector(s);

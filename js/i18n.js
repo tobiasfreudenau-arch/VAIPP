@@ -1,7 +1,7 @@
 // Sprachen: Deutsch (Standard) und Englisch
 window.I18N = (function () {
   const de = {
-    app: 'VIP Fahrzeugübergabe',
+    app: 'VIP Freudenau GmbH App',
     login: 'Anmelden', register: 'Passwort festlegen', forgot: 'Passwort vergessen',
     email: 'E-Mail-Adresse', password: 'Passwort', password2: 'Passwort wiederholen', newPassword: 'Neues Passwort', code: 'Code aus der E-Mail',
     firstTime: 'Erstes Mal hier? Passwort festlegen', loginBtn: 'Anmelden', registerBtn: 'Passwort speichern & anmelden', sendCode: 'Code anfordern', resetBtn: 'Passwort ändern',
@@ -36,7 +36,7 @@ window.I18N = (function () {
     rotateHint: 'Mit einem Finger drehen, mit zwei Fingern zoomen.'
   };
   const en = {
-    app: 'VIP Vehicle Handover',
+    app: 'VIP Freudenau GmbH App',
     login: 'Sign in', register: 'Set password', forgot: 'Forgot password',
     email: 'E-mail address', password: 'Password', password2: 'Repeat password', newPassword: 'New password', code: 'Code from e-mail',
     firstTime: 'First time here? Set your password', loginBtn: 'Sign in', registerBtn: 'Save password & sign in', sendCode: 'Request code', resetBtn: 'Change password',
