@@ -26,10 +26,11 @@
   function hideOverlay() { const o = $('#overlay'); if (o) o.remove(); }
   function sheet(html) {
     const bg = document.createElement('div'); bg.className = 'sheet-bg';
-    bg.innerHTML = '<div class="sheet"><div class="grab"></div>' + html + '</div>';
+    bg.innerHTML = '<div class="sheet"><button class="sheet-x" aria-label="Schließen">✕</button><div class="grab"></div>' + html + '</div>';
     document.body.appendChild(bg);
     const close = () => bg.remove();
     bg.addEventListener('click', e => { if (e.target === bg) close(); });
+    bg.querySelector('.sheet-x').onclick = close;
     return { el: bg, close };
   }
   function confirmDlg(msg) { return new Promise(res => { const s = sheet('<p style="font-size:17px">' + esc(msg) + '</p><div class="btn-row mt"><button class="btn ghost" id="c-no">' + t('cancel') + '</button><button class="btn" id="c-yes">OK</button></div>'); $('#c-no', s.el).onclick = () => { s.close(); res(false); }; $('#c-yes', s.el).onclick = () => { s.close(); res(true); }; }); }
@@ -108,6 +109,8 @@
 
   /* ---------- Home ---------- */
   async function viewHome() {
+    if (window.MOD && MOD.home) return MOD.home();
+    if (!state.user) return go('login');
     render(topbar(t('app'), { right: '<button class="icon-btn" data-nav="settings">⚙︎</button>' }) + '<main><div class="spinner"></div></main>');
     const b = await boot();
     if (!b) return go('login');
@@ -311,7 +314,16 @@
   // --- Schritt 5: Schäden
   let silView = 'iso', van3dView = null;
   function webglOk() { try { const c = document.createElement('canvas'); return !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) { return false; } }
+  // 3D-Modell erst laden, wenn es gebraucht wird (spart beim App-Start ca. 550 KB)
+  let van3dLoading = null;
+  function loadVan3d() {
+    if (window.VAN3D) return Promise.resolve(true);
+    if (!van3dLoading) van3dLoading = new Promise(res => { const s = document.createElement('script'); s.src = 'js/van3d.js'; s.onload = () => res(true); s.onerror = () => { van3dLoading = null; res(false); }; document.head.appendChild(s); });
+    return van3dLoading;
+  }
+  function preloadVan3d() { const f = () => loadVan3d(); if ('requestIdleCallback' in window) requestIdleCallback(f, { timeout: 8000 }); else setTimeout(f, 4000); }
   async function stepDamages() {
+    if (!window.VAN3D && webglOk()) { await Promise.race([loadVan3d(), new Promise(r => setTimeout(r, 6000))]); }
     const d = state.draft; const known = (d.ctx && d.ctx.offeneSchaeden) || [];
     const markers = known.map(k => { const st = d.bestaetigteSchaeden.find(b => b.schadenId === k.id); return { id: 'old:' + k.id, ansicht: k.ansicht, x: k.x, y: k.y, code: k.code, kind: st && st.status === 'repariert' ? 'fixed' : 'old' }; })
       .concat(d.neueSchaeden.map((n, i) => ({ id: 'new:' + i, ansicht: n.ansicht, x: n.x, y: n.y, code: n.code, kind: 'new' })));
@@ -356,7 +368,9 @@
       '<h3 class="mt">' + t('size') + '</h3><div class="chips three" id="n-size">' + ['klein', 'mittel', 'gross'].map(g => '<button class="chip ' + (g === 'mittel' ? 'on' : '') + '" data-size="' + g + '">' + t(g === 'gross' ? 'large' : g === 'klein' ? 'small' : 'medium') + '</button>').join('') + '</div>' +
       '<label class="lbl">' + t('note') + '</label><input type="text" id="n-text" maxlength="120">' +
       '<div class="photo-grid mt" style="grid-template-columns:1fr 1fr"><div class="photo-tile req" id="n-photo"><span class="ico">📷</span><div class="cap">' + t('damagePhoto') + '</div></div></div>' +
-      '<button class="btn mt" id="n-ok" disabled>' + t('addDamage') + '</button>');
+      '<button class="btn mt" id="n-ok" disabled>' + t('addDamage') + '</button>' +
+      '<button class="btn ghost mt" id="n-cancel">' + t('cancel') + ' – ' + t('backToVehicle') + '</button>');
+    $('#n-cancel', s.el).onclick = () => s.close();
     const check = () => { $('#n-ok', s.el).disabled = !(n.code && n.localPhotoId); };
     $$('#n-codes .chip', s.el).forEach(c => c.onclick = () => { n.code = c.getAttribute('data-code'); $$('#n-codes .chip', s.el).forEach(x => x.classList.toggle('on', x === c)); check(); });
     $$('#n-size .chip', s.el).forEach(c => c.onclick = () => { n.groesse = c.getAttribute('data-size'); $$('#n-size .chip', s.el).forEach(x => x.classList.toggle('on', x === c)); });
@@ -633,7 +647,7 @@
       '<button class="btn danger" id="logout">' + t('logout') + '</button><p class="small muted center mt" id="ver">' + t('version') + ' ' + window.VIP_CONFIG.APP_VERSION + '</p></main>');
     $$('[data-l]').forEach(c => c.onclick = async () => { I18N.setLang(c.getAttribute('data-l')); try { await API.call('setLanguage', { sprache: I18N.lang }); } catch (e) { } viewSettings(); });
     $('#pw-ok').onclick = async () => { try { await API.call('changePassword', { oldPassword: $('#pw-old').value, password: $('#pw-new').value }); toast('✓'); $('#pw-old').value = ''; $('#pw-new').value = ''; } catch (e) { toast(errMsg(e), true); } };
-    $('#logout').onclick = async () => { try { await API.call('logout'); } catch (e) { } API.clearSession(); state.user = null; state.boot = null; go('login'); };
+    $('#logout').onclick = async () => { try { await API.call('logout'); } catch (e) { } API.clearSession(); state.user = null; state.boot = null; try { await DB.kvSet('boot', null); } catch (e) { } go('login'); };
     let taps = 0; $('#ver').onclick = () => { if (++taps >= 5) { taps = 0; const cur = localStorage.getItem('vip_api_url') || ''; const v = prompt('Backend-URL (leer = Standard aus config.js)', cur); if (v !== null) { if (v.trim()) localStorage.setItem('vip_api_url', v.trim()); else localStorage.removeItem('vip_api_url'); toast('✓'); } } };
   }
 
@@ -661,12 +675,12 @@
       default: return go('home');
     }
   }
-  window.APP = { state, render, topbar, go, toast, overlay, hideOverlay, sheet, confirmDlg, esc, fmtD, fmtDT, t, boot, takePhoto, thumbUrl, userName, isMgmt, isAdmin, protoItem, startDraft, selectVehicle, discardDraft, uuid, bindNav, viewHome, logoFor, CODES, VIEW_LBL, INVENTAR };
+  window.APP = { loadVan3d, preloadVan3d, state, render, topbar, go, toast, overlay, hideOverlay, sheet, confirmDlg, esc, fmtD, fmtDT, t, boot, takePhoto, thumbUrl, userName, isMgmt, isAdmin, protoItem, startDraft, selectVehicle, discardDraft, uuid, bindNav, viewHome, logoFor, CODES, VIEW_LBL, INVENTAR };
   window.addEventListener('hashchange', route);
   window.addEventListener('vip:logout', () => { state.user = null; state.boot = null; go('login'); });
-  window.addEventListener('online', () => { if ((location.hash || '#home') === '#home') viewHome(); });
-  window.addEventListener('offline', () => { if ((location.hash || '#home') === '#home') viewHome(); });
-  API.onProgress(ev => { if (ev.type === 'sent') { toast(t('sent') + ' ' + (ev.result && ev.result.nr || '')); if ((location.hash || '#home') === '#home') viewHome(); } });
+  window.addEventListener('online', () => { if ((location.hash || '#home') === '#home') route(); });
+  window.addEventListener('offline', () => { if ((location.hash || '#home') === '#home') route(); });
+  API.onProgress(ev => { if (ev.type === 'sent') { toast(t('sent') + ' ' + (ev.result && ev.result.nr || '')); if ((location.hash || '#home') === '#home') route(); } });
   if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) navigator.serviceWorker.register('sw.js').catch(() => { });
   route();
   if (state.user) setTimeout(() => API.flush(), 1500);

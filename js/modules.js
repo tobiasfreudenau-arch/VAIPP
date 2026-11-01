@@ -40,12 +40,30 @@
   }
 
   /* ---------- Startseite nach Rolle ---------- */
+  const onHome = () => ['', '#', '#home'].indexOf(location.hash) >= 0;
+  let homeRefreshing = false;
   async function home() {
-    render(topbar(T('Start', 'Home'), { right: '<button class="icon-btn" data-nav="settings">⚙︎</button>' }) + '<main><div class="spinner"></div></main>');
-    const b = await boot(true); if (!b) return go('login');
+    let cached = state.boot || await DB.kvGet('boot').catch(() => null);
+    // nur Zwischenspeicher derselben Person verwenden (Gerätewechsel / anderer Login)
+    if (cached && (!cached.user || !state.user || cached.user.id !== state.user.id)) { cached = null; state.boot = null; }
+    if (cached && cached.user) {
+      state.boot = cached;
+      await drawHome(cached, true);
+      if (!homeRefreshing) {
+        homeRefreshing = true;
+        boot(true).then(b => { homeRefreshing = false; if (!b) return go('login'); if (onHome()) drawHome(b, false); }).catch(() => { homeRefreshing = false; });
+      }
+    } else {
+      render(topbar(T('Start', 'Home'), { right: '<button class="icon-btn" data-nav="settings">⚙︎</button>' }) + '<main><div class="spinner"></div></main>');
+      const b = await boot(true); if (!b) return go('login');
+      await drawHome(b, false);
+    }
+    A.preloadVan3d();
+  }
+  async function drawHome(b, stale) {
     const drafts = await DB.all('drafts'); const outbox = await DB.all('outbox');
     const draft = drafts.filter(d => !outbox.find(o => o.clientId === d.clientId)).sort((a, c) => (c.updatedAt || '').localeCompare(a.updatedAt || ''))[0];
-    const h = b.heute || {}; const plan = (h.plan || []); const tourPlan = plan.find(p => p.status === 'tour'); const dienst = plan.find(p => p.quelle === 'schichtplan');
+    const h0 = b.heute || {}; const h = (stale && h0.datum && h0.datum !== today()) ? { datum: today(), plan: [] } : h0; const plan = (h.plan || []); const tourPlan = plan.find(p => p.status === 'tour'); const dienst = plan.find(p => p.quelle === 'schichtplan');
     const tb = h.tourbericht;
     let html = topbar(T('Start', 'Home'), { right: '<button class="icon-btn" data-nav="settings">⚙︎</button>' }) + '<main>';
     html += '<div class="row" style="margin-bottom:10px"><p class="muted grow" style="margin:0">Hallo ' + esc(u().vorname || u().name) + '</p>' + pill(grp()) + '</div>';
@@ -55,7 +73,13 @@
     else if (tourPlan) heute = '<div style="font-size:26px;font-weight:700;color:var(--gold2)">' + esc(tourPlan.tour) + ' <span class="muted" style="font-size:15px;font-weight:400">' + esc(tourPlan.area || '') + '</span></div><div class="row wrap mt"><span class="badge">🚐 ' + esc(tourPlan.kennzeichen || '–') + '</span><span class="badge">⏰ ' + esc(tourPlan.start || '–') + '</span>' + (tb ? '<span class="badge ' + (tb.status === 'beendet' ? 'green' : '') + '">' + (tb.status === 'beendet' ? T('Tour beendet', 'Tour ended') : T('Gestartet', 'Started') + ' ' + esc(tb.startIst)) + '</span>' : '') + '</div>';
     else if (dienst) heute = '<div style="font-size:22px;font-weight:700;color:var(--gold2)">' + esc(STATUS_TXT[dienst.status] || dienst.code) + (dienst.start ? ' <span class="muted" style="font-size:15px;font-weight:400">ab ' + esc(dienst.start) + '</span>' : '') + '</div>';
     else if (plan.length) heute = '<div style="font-size:20px;font-weight:700;color:var(--gold2)">' + esc(STATUS_TXT[plan[0].status] || plan[0].code || '') + '</div>';
-    else heute = '<p class="muted" style="margin:0">' + T('Kein Eintrag im Dienstplan für heute.', 'No schedule entry for today.') + '</p>';
+    else heute = '<p class="muted" style="margin:0">' + (stale ? T('Wird aktualisiert …', 'Updating …') : T('Kein Eintrag im Dienstplan für heute.', 'No schedule entry for today.')) + '</p>';
+    const m = h.morgen;
+    if (m && (m.abwesenheit || (m.plan || []).length)) {
+      const mp = (m.plan || []).find(p => p.status === 'tour') || (m.plan || [])[0];
+      const mtxt = m.abwesenheit ? '<span class="badge red">' + esc(m.abwesenheit.typText) + '</span>' : mp ? (mp.status === 'tour' ? '<b>' + esc(mp.tour) + '</b> ' + esc(mp.area || '') + (mp.start ? ' · ' + esc(mp.start) : '') : '<b>' + esc(STATUS_TXT[mp.status] || mp.code || '') + '</b>') : '';
+      heute += '<div class="small mt" style="border-top:1px solid var(--line);padding-top:8px"><span class="muted">' + T('Morgen', 'Tomorrow') + ' · ' + fmtShort(m.datum) + ':</span> ' + mtxt + '</div>';
+    }
     if (canUps() || canPark()) html += '<div class="card gold"><h3>' + T('Heute', 'Today') + ' · ' + fmtShort(h.datum || today()) + '</h3>' + heute + (canUps() && !h.abwesenheit ? '<div class="btn-row mt">' + (!tb || tb.status !== 'beendet' ? '<button class="btn ' + (tb ? 'secondary' : '') + '" data-nav="tourstart">▶ ' + T('Tour starten', 'Start tour') + '</button>' : '') + '<button class="btn ' + (tb && tb.status === 'beendet' ? 'ghost' : 'secondary') + '" data-nav="tourende">■ ' + T('Tour beenden', 'End tour') + '</button></div>' : '') + '</div>';
     if (outbox.length) html += '<div class="card gold"><h2>' + A.t('pending') + ' (' + outbox.length + ')</h2><p class="small muted">' + A.t('pendingHint') + '</p></div>';
     if (draft) html += '<div class="card gold"><h2>' + A.t('draftFound') + '</h2><p class="small muted">' + esc(draft.kennzeichenAnzeige || '–') + ' · ' + A.t('step') + ' ' + (draft.step || 1) + '/8</p><div class="btn-row"><button class="btn" id="cont">' + A.t('continueDraft') + '</button><button class="btn ghost" id="disc">' + A.t('discardDraft') + '</button></div></div>';
@@ -64,7 +88,7 @@
     const tile = (nav, ico, lbl, cnt) => '<button class="tile" data-nav="' + nav + '"><span class="ico">' + ico + '</span>' + lbl + (cnt ? '<span class="cnt badge red">' + cnt + '</span>' : '') + '</button>';
     html += '<div class="menu">' + tile('heute', '📅', T('Mein Dienstplan', 'My schedule')) + tile('urlaub', '🏖️', T('Urlaub', 'Vacation')) + tile('protocols', '📋', A.t('myProtocols')) + tile('vehicles', '🚐', A.t('vehicles')) + (canUps() ? tile('tourberichte', '🧾', T('Meine Touren', 'My tours')) : '');
     if (mgmt()) {
-      let offen = 0; try { offen = (await API.call('listRequests', { status: 'beantragt', limit: 50 })).length; } catch (e) { }
+      const offen = b.offeneAntraege || 0;
       html += tile('tagesbericht', '📊', T('Tagesbericht', 'Daily report')) + tile('dienstplan', '🗓️', T('Dienstplan (alle)', 'Schedule (all)')) + tile('antraege', '✅', T('Urlaubsanträge', 'Requests'), offen) + tile('abwesenheit', '📝', T('Abwesenheit eintragen', 'Enter absence')) + tile('uebersicht', '👤', T('Mitarbeiter-Übersicht', 'Staff overview')) + tile('dashboard', '⚠️', A.t('dashboard') + ' / ' + A.t('damages'));
     }
     if (A.isAdmin()) html += tile('users', '👥', A.t('users')) + tile('einstellungen', '🛠️', T('Verwaltung', 'Admin'));
@@ -76,7 +100,8 @@
 
   /* ---------- Mein Dienstplan (Woche) ---------- */
   async function viewHeute(arg) {
-    let start = arg || ymd(new Date(new Date().setDate(new Date().getDate() - ((new Date().getDay() + 6) % 7))));
+    const wd = new Date().getDay(); // Sa/So -> nächste Woche zeigen
+    let start = arg || addDays(today(), wd === 6 ? 2 : wd === 0 ? 1 : -(wd - 1));
     render(topbar(T('Mein Dienstplan', 'My schedule'), { back: 'home' }) + '<main><div class="spinner"></div></main>');
     let d; try { d = await API.call('dienstplan', { von: start, bis: addDays(start, 6) }); } catch (e) { return render(topbar('Dienstplan', { back: 'home' }) + '<main><div class="card danger">' + esc(errMsg(e)) + '</div></main>'); }
     let html = topbar(T('Mein Dienstplan', 'My schedule'), { back: 'home' }) + '<main><div class="row"><button class="btn small ghost" id="prev">‹</button><div class="grow center"><b>KW ' + isoWeek(start) + '</b><div class="small muted">' + fmtD(start) + ' – ' + fmtD(addDays(start, 6)) + '</div></div><button class="btn small ghost" id="next">›</button></div>';
@@ -89,8 +114,6 @@
       else txt = mine.map(p => p.status === 'tour' ? '<b>' + esc(p.tour) + '</b> ' + esc(p.kennzeichen || '') + (p.start ? ' · ' + esc(p.start) : '') + (p.area ? '<br><span class="small muted">' + esc(p.area) + '</span>' : '') : '<b>' + esc(STATUS_TXT[p.status] || p.code) + '</b>' + (p.start ? ' ab ' + esc(p.start) : '')).join('<br>');
       html += '<div class="card ' + (isToday ? 'gold' : '') + '" style="padding:10px 14px"><div class="row"><div style="width:62px"><b>' + WD[dow(day)] + '</b><div class="small muted">' + day.slice(8) + '.' + day.slice(5, 7) + '.</div></div><div class="grow">' + txt + '</div></div></div>';
     }
-    const others = (d.abwesenheiten || []).filter(a => a.userId !== u().id);
-    if (others.length) html += card(T('Abwesend diese Woche', 'Absent this week'), others.map(a => '<div class="small">' + esc(a.name) + ' · ' + fmtD(a.von) + '–' + fmtD(a.bis) + (a.typ !== 'abwesend' ? ' (' + esc(a.typText) + ')' : '') + '</div>').join(''));
     render(html + '</main>');
     $('#prev').onclick = () => go('heute/' + addDays(start, -7)); $('#next').onclick = () => go('heute/' + addDays(start, 7));
   }
@@ -194,7 +217,7 @@
     let d; try { d = await API.call('dienstplan', { von: datum, bis: datum }); } catch (e) { return render(topbar('Dienstplan', { back: 'home' }) + '<main><div class="card danger">' + esc(errMsg(e)) + '</div></main>'); }
     const tours = d.plan.filter(p => p.quelle === 'dpl').sort((a, c) => String(a.tour).localeCompare(String(c.tour)));
     const park = d.plan.filter(p => p.quelle === 'schichtplan');
-    let html = topbar('Dienstplan', { back: 'home' }) + '<main><div class="row"><button class="btn small ghost" data-nav="dienstplan/' + addDays(datum, -1) + '">‹</button><div class="grow center"><b>' + fmtShort(datum) + '</b></div><button class="btn small ghost" data-nav="dienstplan/' + addDays(datum, 1) + '">›</button></div>';
+    let html = topbar('Dienstplan', { back: 'home' }) + '<main><div class="day-switch"><button class="chip ' + (datum === today() ? 'on' : '') + '" data-nav="dienstplan/' + today() + '">' + T('Heute', 'Today') + '</button><button class="chip ' + (datum === addDays(today(), 1) ? 'on' : '') + '" data-nav="dienstplan/' + addDays(today(), 1) + '">' + T('Morgen', 'Tomorrow') + '</button></div><div class="row"><button class="btn small ghost" data-nav="dienstplan/' + addDays(datum, -1) + '">‹</button><div class="grow center"><b>' + fmtShort(datum) + '</b></div><button class="btn small ghost" data-nav="dienstplan/' + addDays(datum, 1) + '">›</button></div>';
     html += card('UPS (' + tours.length + ')', tours.map(p => '<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="badge">' + esc(p.tour || p.code) + '</span><b class="grow">' + esc(p.name) + (p.userId ? '' : ' <span class="danger small">(nicht zugeordnet)</span>') + '</b><span class="small muted">' + esc(p.kennzeichen || '') + ' ' + esc(p.start || '') + '</span></div>').join('') || '<p class="muted small">' + T('Keine DPL-Datei für diesen Tag.', 'No DPL file for this day.') + '</p>', 'mt');
     if (park.length) html += card('Parkplatz', park.map(p => '<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><b class="grow">' + esc(p.name) + '</b><span class="badge grey">' + esc(STATUS_TXT[p.status] || p.code) + (p.start ? ' ' + esc(p.start) : '') + '</span></div>').join(''));
     if (d.abwesenheiten.length) html += card(T('Abwesend', 'Absent'), d.abwesenheiten.map(a => '<div class="row" style="padding:4px 0"><b class="grow">' + esc(a.name) + '</b>' + pill(a.gruppe) + '<span class="badge red">' + esc(a.typText) + '</span></div>').join(''));
