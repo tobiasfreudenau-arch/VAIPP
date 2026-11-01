@@ -1,6 +1,6 @@
 {
   "name": "VIP Freudenau GmbH App",
-  "short_name": "VIP App",
+  "short_name": "VIApp",
   "description": "Mitarbeiter-App der VIP Freudenau GmbH – Fahrzeugübergabe, Dienstplan, Urlaub",
   "start_url": "./index.html",
   "scope": "./",
