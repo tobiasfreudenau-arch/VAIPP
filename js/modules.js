@@ -80,13 +80,16 @@
       const mtxt = m.abwesenheit ? '<span class="badge red">' + esc(m.abwesenheit.typText) + '</span>' : mp ? (mp.status === 'tour' ? '<b>' + esc(mp.tour) + '</b> ' + esc(mp.area || '') + (mp.start ? ' · ' + esc(mp.start) : '') : '<b>' + esc(STATUS_TXT[mp.status] || mp.code || '') + '</b>') : '';
       heute += '<div class="small mt" style="border-top:1px solid var(--line);padding-top:8px"><span class="muted">' + T('Morgen', 'Tomorrow') + ' · ' + fmtShort(m.datum) + ':</span> ' + mtxt + '</div>';
     }
-    if (canUps() || canPark()) html += '<div class="card gold"><h3>' + T('Heute', 'Today') + ' · ' + fmtShort(h.datum || today()) + '</h3>' + heute + (canUps() && !h.abwesenheit ? '<div class="btn-row mt">' + (!tb || tb.status !== 'beendet' ? '<button class="btn ' + (tb ? 'secondary' : '') + '" data-nav="tourstart">▶ ' + T('Tour starten', 'Start tour') + '</button>' : '') + '<button class="btn ' + (tb && tb.status === 'beendet' ? 'ghost' : 'secondary') + '" data-nav="tourende">■ ' + T('Tour beenden', 'End tour') + '</button></div>' : '') + '</div>';
+    const locked = !!b.gesperrt;
+    if (!locked && (canUps() || canPark())) html += '<div class="card gold"><h3>' + T('Heute', 'Today') + ' · ' + fmtShort(h.datum || today()) + '</h3>' + heute + (canUps() && !h.abwesenheit ? '<div class="btn-row mt">' + (!tb || tb.status !== 'beendet' ? '<button class="btn ' + (tb ? 'secondary' : '') + '" data-nav="tourstart">▶ ' + T('Tour starten', 'Start tour') + '</button>' : '') + '<button class="btn ' + (tb && tb.status === 'beendet' ? 'ghost' : 'secondary') + '" data-nav="tourende">■ ' + T('Tour beenden', 'End tour') + '</button></div>' : '') + '</div>';
     if (outbox.length) html += '<div class="card gold"><h2>' + A.t('pending') + ' (' + outbox.length + ')</h2><p class="small muted">' + A.t('pendingHint') + '</p></div>';
     if (draft) html += '<div class="card gold"><h2>' + A.t('draftFound') + '</h2><p class="small muted">' + esc(draft.kennzeichenAnzeige || '–') + ' · ' + A.t('step') + ' ' + (draft.step || 1) + '/8</p><div class="btn-row"><button class="btn" id="cont">' + A.t('continueDraft') + '</button><button class="btn ghost" id="disc">' + A.t('discardDraft') + '</button></div></div>';
     (b.offeneBestaetigungen || []).forEach(p => { html += '<div class="card danger"><h2>' + A.t('toConfirm') + '</h2><button class="list-item" data-nav="protocol/' + p.id + '"><div class="main"><b>' + esc(p.kennzeichen) + ' · ' + esc(p.nr) + '</b><span>' + fmtDT(p.datum) + ' · ' + esc(p.von) + ' → ' + esc(p.an) + '</span></div><div class="chev">›</div></button></div>'; });
     html += '<button class="btn big" id="new">＋ ' + A.t('newProtocol') + '</button><div class="gold-line"></div>';
     const tile = (nav, ico, lbl, cnt) => '<button class="tile" data-nav="' + nav + '"><span class="ico">' + ico + '</span>' + lbl + (cnt ? '<span class="cnt badge red">' + cnt + '</span>' : '') + '</button>';
-    html += '<div class="menu">' + tile('heute', '📅', T('Mein Dienstplan', 'My schedule')) + tile('urlaub', '🏖️', T('Urlaub', 'Vacation')) + tile('protocols', '📋', A.t('myProtocols')) + tile('vehicles', '🚐', A.t('vehicles')) + (canUps() ? tile('tourberichte', '🧾', T('Meine Touren', 'My tours')) : '');
+    const soon = (ico, lbl) => '<button class="tile soon" type="button" aria-disabled="true"><span class="ico">' + ico + '</span>' + lbl + '<span class="soon-badge">' + T('Kommt bald', 'Coming soon') + '</span></button>';
+    if (locked) html += '<div class="menu">' + tile('urlaub', '🏖️', T('Urlaub', 'Vacation')) + tile('protocols', '📋', A.t('myProtocols')) + tile('vehicles', '🚐', A.t('vehicles')) + soon('📅', T('Mein Dienstplan', 'My schedule')) + (canUps() ? soon('🧾', T('Meine Touren', 'My tours')) : '');
+    else html += '<div class="menu">' + tile('heute', '📅', T('Mein Dienstplan', 'My schedule')) + tile('urlaub', '🏖️', T('Urlaub', 'Vacation')) + tile('protocols', '📋', A.t('myProtocols')) + tile('vehicles', '🚐', A.t('vehicles')) + (canUps() ? tile('tourberichte', '🧾', T('Meine Touren', 'My tours')) : '');
     if (mgmt()) {
       const offen = b.offeneAntraege || 0;
       html += tile('tagesbericht', '📊', T('Tagesbericht', 'Daily report')) + tile('dienstplan', '🗓️', T('Dienstplan (alle)', 'Schedule (all)')) + tile('antraege', '✅', T('Urlaubsanträge', 'Requests'), offen) + tile('abwesenheit', '📝', T('Abwesenheit eintragen', 'Enter absence')) + tile('uebersicht', '👤', T('Mitarbeiter-Übersicht', 'Staff overview')) + tile('dashboard', '⚠️', A.t('dashboard') + ' / ' + A.t('damages'));
@@ -94,6 +97,7 @@
     if (A.isAdmin()) html += tile('users', '👥', A.t('users')) + tile('einstellungen', '🛠️', T('Verwaltung', 'Admin'));
     html += '</div></main>';
     render(html);
+    $$('.tile.soon').forEach(el => el.onclick = () => toast(T('Dieser Bereich kommt bald.', 'This area is coming soon.')));
     $('#new').onclick = async () => { if (draft) { if (!(await confirmDlg(A.t('reallyDiscard')))) return; await A.discardDraft(draft.clientId); } A.startDraft(); };
     if (draft) { $('#cont').onclick = () => { state.draft = draft; go('new'); }; $('#disc').onclick = async () => { if (await confirmDlg(A.t('reallyDiscard'))) { await A.discardDraft(draft.clientId); home(); } }; }
   }
@@ -349,7 +353,13 @@
     $('#t-edit').onclick = async () => { const tours = await API.call('listTours'); const s = sheet('<h2>Touren</h2>' + tours.map(t => '<div class="row" style="padding:4px 0"><b style="width:60px">' + esc(t.code) + '</b><input type="text" data-tg="' + esc(t.code) + '" value="' + esc(t.gebiet) + '" style="min-height:38px;padding:4px 8px"><input type="text" data-ts="' + esc(t.code) + '" value="' + esc(t.start) + '" style="min-height:38px;padding:4px 8px;width:70px"></div>').join('') + '<div class="row mt"><input type="text" id="t-new" placeholder="Neuer Code, z. B. C28" style="min-height:38px"><button class="btn small secondary" id="t-add">＋</button></div><button class="btn mt" id="t-ok">' + A.t('save') + '</button>'); $('#t-ok', s.el).onclick = async () => { overlay('…'); try { for (const t of tours) { const g = $('[data-tg="' + t.code + '"]', s.el).value, st2 = $('[data-ts="' + t.code + '"]', s.el).value; if (g !== t.gebiet || st2 !== t.start) await API.call('upsertTour', { code: t.code, gebiet: g, start: st2 }); } hideOverlay(); s.close(); toast('✓'); state.boot = null; } catch (e) { hideOverlay(); toast(errMsg(e), true); } }; $('#t-add', s.el).onclick = async () => { const c = $('#t-new', s.el).value.trim(); if (!c) return; try { await API.call('upsertTour', { code: c }); s.close(); toast('✓'); state.boot = null; $('#t-edit').click(); } catch (e) { toast(errMsg(e), true); } }; };
   }
 
-  window.MOD = { home, routes: { heute: viewHeute, tourstart: viewTourStart, tourende: viewTourEnd, tourberichte: viewTourberichte, tagesbericht: viewTagesbericht, dienstplan: viewDienstplan, urlaub: viewUrlaub, antraege: viewAntraege, abwesenheit: viewAbwesenheit, uebersicht: viewUebersicht, einstellungen: viewEinstellungen } };
+  // Gesperrte Bereiche (Freigabe noch nicht erteilt): zurück zur Startseite
+  const guard = fn => async arg => {
+    let b = state.boot; if (!b) { try { b = await boot(); } catch (e) { b = null; } }
+    if (b && b.gesperrt) { toast(T('Dieser Bereich kommt bald.', 'This area is coming soon.')); return go('home'); }
+    return fn(arg);
+  };
+  window.MOD = { home, routes: { heute: guard(viewHeute), tourstart: guard(viewTourStart), tourende: guard(viewTourEnd), tourberichte: guard(viewTourberichte), tagesbericht: viewTagesbericht, dienstplan: guard(viewDienstplan), urlaub: viewUrlaub, antraege: viewAntraege, abwesenheit: viewAbwesenheit, uebersicht: viewUebersicht, einstellungen: viewEinstellungen } };
   // Startseite neu zeichnen, falls bereits geladen
   if ((location.hash || '#home') === '#home' && state.user) home();
 })();

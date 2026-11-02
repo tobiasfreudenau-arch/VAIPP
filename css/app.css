@@ -236,3 +236,8 @@ td.kw .occ.full { background: var(--danger-bg); color: #ff8a8e; }
 .sheet h2:first-of-type { padding-right: 48px; }
 .day-switch { display: flex; gap: 8px; margin: 8px 0 4px; }
 .day-switch .chip { flex: 1; min-height: 40px; }
+
+/* Noch nicht freigegebene Bereiche */
+.menu .tile.soon { background: #161512; border-style: dashed; color: #77705f; cursor: default; }
+.menu .tile.soon .ico { filter: grayscale(1); opacity: .45; }
+.soon-badge { display: inline-block; margin-top: 2px; padding: 2px 9px; border-radius: 999px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .02em; }
