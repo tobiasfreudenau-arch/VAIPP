@@ -82,6 +82,13 @@
     }
     const locked = !!b.gesperrt;
     if (!locked && (canUps() || canPark())) html += '<div class="card gold"><h3>' + T('Heute', 'Today') + ' · ' + fmtShort(h.datum || today()) + '</h3>' + heute + (canUps() && !h.abwesenheit ? '<div class="btn-row mt">' + (!tb || tb.status !== 'beendet' ? '<button class="btn ' + (tb ? 'secondary' : '') + '" data-nav="tourstart">▶ ' + T('Tour starten', 'Start tour') + '</button>' : '') + '<button class="btn ' + (tb && tb.status === 'beendet' ? 'ghost' : 'secondary') + '" data-nav="tourende">■ ' + T('Tour beenden', 'End tour') + '</button></div>' : '') + '</div>';
+    if (locked && canUps()) {
+      const th = b.tourHeute;
+      html += '<div class="card gold"><h3>' + T('Heute', 'Today') + ' · ' + fmtShort(today()) + '</h3>' + (th && th.kmStart
+        ? '<p style="margin:0">✓ ' + T('Tour gestartet', 'Tour started') + ': <b>' + esc(th.tour || '') + '</b> · 🚐 ' + esc(th.kennzeichen || '') + ' · ' + fmtKm(th.kmStart) + ' km</p><div class="btn-row mt"><button class="btn secondary" data-nav="tourstart">' + T('Fahrzeug / km ändern', 'Change vehicle / km') + '</button></div>'
+        : '<p class="small muted" style="margin:0 0 8px">' + T('Vor Fahrtbeginn: Fahrzeug wählen und Kilometerstand eintragen.', 'Before driving: choose the vehicle and enter the odometer reading.') + '</p><button class="btn" data-nav="tourstart">▶ ' + T('Tour starten', 'Start tour') + '</button>') + '</div>';
+    }
+    if (mgmt() && b.km && b.km.warnungen) html += '<button class="card danger kmalert" data-nav="kilometer" style="display:block;width:100%;text-align:left"><h3>🛣️ ' + T('Kilometer', 'Mileage') + ': ' + b.km.warnungen + ' ' + T('Fahrzeug' + (b.km.warnungen === 1 ? '' : 'e') + ' kritisch', 'critical') + '</h3>' + b.km.fahrzeuge.map(k => '<div class="small">' + esc(k.kennzeichen) + ' – ' + fmtKm(k.gefahren) + ' / ' + fmtKm(k.limit) + ' km · ' + esc(k.statusText) + (k.prognose != null ? ' (' + T('Prognose', 'forecast') + ' ' + fmtKm(k.prognose) + ')' : '') + '</div>').join('') + (b.km.tausch ? '<div class="small mt"><b>🔁 ' + b.km.tausch + ' ' + T('Tauschvorschlag' + (b.km.tausch === 1 ? '' : 'e') + ' ansehen ›', 'swap suggestion(s) ›') + '</b></div>' : '') + '</button>';
     if (outbox.length) html += '<div class="card gold"><h2>' + A.t('pending') + ' (' + outbox.length + ')</h2><p class="small muted">' + A.t('pendingHint') + '</p></div>';
     if (draft) html += '<div class="card gold"><h2>' + A.t('draftFound') + '</h2><p class="small muted">' + esc(draft.kennzeichenAnzeige || '–') + ' · ' + A.t('step') + ' ' + (draft.step || 1) + '/8</p><div class="btn-row"><button class="btn" id="cont">' + A.t('continueDraft') + '</button><button class="btn ghost" id="disc">' + A.t('discardDraft') + '</button></div></div>';
     (b.offeneBestaetigungen || []).forEach(p => { html += '<div class="card danger"><h2>' + A.t('toConfirm') + '</h2><button class="list-item" data-nav="protocol/' + p.id + '"><div class="main"><b>' + esc(p.kennzeichen) + ' · ' + esc(p.nr) + '</b><span>' + fmtDT(p.datum) + ' · ' + esc(p.von) + ' → ' + esc(p.an) + '</span></div><div class="chev">›</div></button></div>'; });
@@ -92,7 +99,7 @@
     else html += '<div class="menu">' + tile('heute', '📅', T('Mein Dienstplan', 'My schedule')) + tile('urlaub', '🏖️', T('Urlaub', 'Vacation')) + tile('protocols', '📋', A.t('myProtocols')) + tile('vehicles', '🚐', A.t('vehicles')) + (canUps() ? tile('tourberichte', '🧾', T('Meine Touren', 'My tours')) : '');
     if (mgmt()) {
       const offen = b.offeneAntraege || 0;
-      html += tile('tagesbericht', '📊', T('Tagesbericht', 'Daily report')) + tile('dienstplan', '🗓️', T('Dienstplan (alle)', 'Schedule (all)')) + tile('antraege', '✅', T('Urlaubsanträge', 'Requests'), offen) + tile('abwesenheit', '📝', T('Abwesenheit eintragen', 'Enter absence')) + tile('uebersicht', '👤', T('Mitarbeiter-Übersicht', 'Staff overview')) + tile('dashboard', '⚠️', A.t('dashboard') + ' / ' + A.t('damages'));
+      html += tile('kilometer', '🛣️', T('Kilometer', 'Mileage'), b.km && b.km.warnungen) + tile('tagesbericht', '📊', T('Tagesbericht', 'Daily report')) + tile('dienstplan', '🗓️', T('Dienstplan (alle)', 'Schedule (all)')) + tile('antraege', '✅', T('Urlaubsanträge', 'Requests'), offen) + tile('abwesenheit', '📝', T('Abwesenheit eintragen', 'Enter absence')) + tile('uebersicht', '👤', T('Mitarbeiter-Übersicht', 'Staff overview')) + tile('dashboard', '⚠️', A.t('dashboard') + ' / ' + A.t('damages'));
     }
     if (A.isAdmin()) html += tile('users', '👥', A.t('users')) + tile('einstellungen', '🛠️', T('Verwaltung', 'Admin'));
     html += '</div></main>';
@@ -124,32 +131,120 @@
   function isoWeek(s) { const d = new Date(s + 'T12:00:00'); const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); const day = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - day); return Math.ceil((((t - Date.UTC(t.getUTCFullYear(), 0, 1)) / 86400000) + 1) / 7); }
 
   /* ---------- Tour starten ---------- */
+  const fmtKm = n => (n == null || n === '' || isNaN(Number(n))) ? '–' : Math.round(Number(n)).toLocaleString('de-DE');
+  const KMCLS = { ueber: 'red', warnung: 'red', prognose: 'warn', ok: 'green', keine_daten: 'grey' };
+  const kmBar = k => { const pct = Math.min(100, Math.round((k.gefahren || 0) / (k.limit || 1) * 100)); const soll = k.sollHeute ? Math.min(100, Math.round(k.sollHeute / k.limit * 100)) : null; return '<div class="kmbar ' + (KMCLS[k.status] || '') + '"><span style="width:' + pct + '%"></span>' + (soll != null ? '<i style="left:' + soll + '%" title="' + T('Soll heute', 'Target today') + '"></i>' : '') + '</div>'; };
+  const kmHinweisMa = k => {
+    if (!k || !k.status) return '';
+    const basis = esc(k.kennzeichen) + ': ' + T('diesen Monat', 'this month') + ' <b>' + fmtKm(k.gefahren) + '</b> ' + T('von', 'of') + ' ' + fmtKm(k.limit) + ' ' + T('freien km', 'free km') + ' (' + (k.prozent || 0) + ' %)';
+    if (k.status === 'ueber') return '<div class="card danger"><h3>⚠️ ' + T('Kilometer-Grenze überschritten', 'Mileage limit exceeded') + '</h3><p>' + basis + '.</p><p class="small">' + T('Die Disposition ist informiert und meldet sich wegen eines Fahrzeugtauschs.', 'Dispatch has been informed and will arrange a vehicle swap.') + '</p></div>';
+    if (k.status === 'warnung') return '<div class="card danger"><h3>⚠️ ' + T('Kilometer-Grenze fast erreicht', 'Mileage limit almost reached') + '</h3><p>' + basis + '.</p><p class="small">' + T('Bitte keine unnötigen Fahrten. Die Disposition ist informiert.', 'Please avoid unnecessary trips. Dispatch has been informed.') + '</p></div>';
+    if (k.status === 'prognose') return '<div class="card gold"><h3>🛣️ ' + T('Achtung Kilometer', 'Mileage notice') + '</h3><p>' + basis + '.</p><p class="small">' + T('Bei gleicher Fahrleistung werden es bis Monatsende ca. ', 'At this rate it will be about ') + fmtKm(k.prognose) + ' km. ' + T('Die Disposition prüft einen Fahrzeugtausch.', 'Dispatch will check a vehicle swap.') + '</p></div>';
+    return '';
+  };
+
+  /* ---------- Tour starten: erst Fahrzeug, dann Kilometerstand (Pflicht) ---------- */
   async function viewTourStart() {
     render(topbar(T('Tour starten', 'Start tour'), { back: 'home' }) + '<main><div class="spinner"></div></main>');
-    const b = await boot(); const h = await API.call('heute').catch(() => b.heute) || {};
-    const plan = (h.plan || []).find(p => p.status === 'tour') || {}; const tb = h.tourbericht;
-    const sel = { tour: (tb && tb.tourIst) || plan.tour || '', kz: (tb && tb.kennzeichenIst) || plan.kennzeichen || '', start: (tb && tb.startIst) || nowHM() };
+    const b = await boot(); const h = (b.gesperrt ? null : await API.call('heute').catch(() => b.heute)) || {};
+    const plan = (h.plan || []).find(p => p.status === 'tour') || {}; const tb = h.tourbericht || b.tourHeute || null;
+    const fzList = (b.fahrzeuge || []).filter(v => !v.status || v.status === 'aktiv');
+    const vorFz = (tb && (tb.fahrzeugId || tb.kennzeichenIst || tb.kennzeichen)) || plan.kennzeichen || '';
+    const findFz = x => fzList.find(v => v.id === x || norm(v.kennzeichen) === norm(x));
+    const sel = { fz: vorFz ? (findFz(vorFz) || null) : null, km: (tb && tb.kmStart) || '', tour: (tb && (tb.tourIst || tb.tour)) || plan.tour || '', start: (tb && tb.startIst) || nowHM(), filter: '' };
+    let info = null, infoFor = '';
     const tours = b.touren || [];
+    const loadInfo = async () => {
+      if (!sel.fz || infoFor === sel.fz.id) return; infoFor = sel.fz.id; info = null; drawInfo();
+      try { info = await API.call('kmFahrzeug', { fahrzeugId: sel.fz.id }); } catch (e) { info = null; }
+      if (sel.fz && infoFor === sel.fz.id) drawInfo();
+    };
+    const drawInfo = () => {
+      const el = $('#kminfo'); if (!el) return;
+      if (!sel.fz) { el.innerHTML = ''; return; }
+      const letzter = (info && info.letzterKm) || sel.fz.km;
+      el.innerHTML = (letzter ? '<p class="small muted" style="margin:6px 0 0">' + T('Letzter Stand', 'Last reading') + ': <b>' + fmtKm(letzter) + ' km</b>' + (info && info.letzterAm ? ' · ' + fmtD(info.letzterAm) + (info.letzteQuelle ? ' (' + esc(info.letzteQuelle) + ')' : '') : '') + '</p>' : '') +
+        (info && info.gefahren != null && info.status !== 'keine_daten' ? '<div class="mt">' + kmBar(info) + '<p class="small muted" style="margin:4px 0 0">' + T('Diesen Monat', 'This month') + ': ' + fmtKm(info.gefahren) + ' / ' + fmtKm(info.limit) + ' km</p></div>' : '');
+    };
     const draw = () => {
       let html = topbar(T('Tour starten', 'Start tour'), { back: 'home' }) + '<main>';
-      html += card(T('Tour', 'Tour'), (plan.tour ? '<p class="small muted">' + T('Laut Dienstplan', 'Per schedule') + ': <b>' + esc(plan.tour) + '</b> ' + esc(plan.area || '') + '</p>' : '<p class="small muted">' + T('Kein Dienstplan-Eintrag – bitte Tour wählen.', 'No schedule entry – choose a tour.') + '</p>') + '<div class="chips">' + tours.map(t => '<button class="chip ' + (sel.tour === t.code ? 'on' : '') + '" data-tour="' + esc(t.code) + '"><b>' + esc(t.code) + '</b>' + (t.gebiet ? '<span class="sub">' + esc(t.gebiet.slice(0, 22)) + '</span>' : '') + '</button>').join('') + '</div>');
-      html += card(T('Fahrzeug', 'Vehicle'), '<input type="text" id="kz" value="' + esc(sel.kz) + '" placeholder="DZ-VF 103" autocapitalize="characters"><div class="chips mt" style="grid-template-columns:repeat(auto-fill,minmax(96px,1fr))">' + (b.fahrzeuge || []).slice(0, 24).map(v => '<button class="chip ' + (norm(sel.kz) === norm(v.kennzeichen) ? 'on' : '') + '" data-kz="' + esc(v.kennzeichen) + '" style="min-height:42px;font-size:13px">' + esc(v.kennzeichen) + '</button>').join('') + '</div>');
+      const f = norm(sel.filter);
+      const chips = fzList.filter(v => !f || norm(v.kennzeichen).indexOf(f) >= 0).map(v => '<button class="chip ' + (sel.fz && sel.fz.id === v.id ? 'on' : '') + '" data-fz="' + esc(v.id) + '">' + esc(v.kennzeichen) + '</button>').join('');
+      html += card('1 · ' + T('Fahrzeug wählen', 'Choose vehicle'), (plan.kennzeichen ? '<p class="small muted">' + T('Laut Dienstplan', 'Per schedule') + ': <b>' + esc(plan.kennzeichen) + '</b></p>' : '') +
+        (fzList.length > 12 ? '<input type="search" id="fzf" value="' + esc(sel.filter) + '" placeholder="' + T('Kennzeichen suchen …', 'Search plate …') + '" autocapitalize="characters">' : '') +
+        '<div class="chips mt" style="grid-template-columns:repeat(auto-fill,minmax(104px,1fr))">' + (chips || '<p class="small muted">' + T('Kein Fahrzeug gefunden.', 'No vehicle found.') + '</p>') + '</div>', sel.fz ? '' : 'gold');
+      html += card('2 · ' + T('Kilometerstand (Pflicht)', 'Odometer (required)'), sel.fz
+        ? '<input type="number" inputmode="numeric" class="huge" id="km" value="' + esc(sel.km) + '" placeholder="' + T('z. B. 123456', 'e.g. 123456') + '"><div id="kminfo"></div>'
+        : '<p class="small muted" style="margin:0">' + T('Bitte zuerst oben das Fahrzeug auswählen – dann wird der Kilometerstand diesem Fahrzeug zugeordnet.', 'Choose the vehicle first – the reading is then assigned to it.') + '</p>', sel.fz && !sel.km ? 'gold' : '');
+      html += card('3 · ' + T('Tour', 'Tour'), (plan.tour ? '<p class="small muted">' + T('Laut Dienstplan', 'Per schedule') + ': <b>' + esc(plan.tour) + '</b> ' + esc(plan.area || '') + '</p>' : '') + '<div class="chips" style="grid-template-columns:repeat(auto-fill,minmax(64px,1fr))">' + tours.map(t => '<button class="chip ' + (sel.tour === t.code ? 'on' : '') + '" data-tour="' + esc(t.code) + '">' + esc(t.code) + '</button>').join('') + '</div>');
       html += card(T('Arbeitsbeginn', 'Start time'), '<input type="time" id="start" value="' + esc(sel.start) + '">');
       html += '<button class="btn" id="ok">▶ ' + T('Tour starten', 'Start tour') + '</button></main>';
       render(html);
+      $$('[data-fz]').forEach(c => c.onclick = () => { const v = fzList.find(x => x.id === c.getAttribute('data-fz')); if (!sel.fz || sel.fz.id !== v.id) { sel.fz = v; sel.km = ''; } draw(); const k = $('#km'); if (k) k.focus(); });
       $$('[data-tour]').forEach(c => c.onclick = () => { sel.tour = c.getAttribute('data-tour'); draw(); });
-      $$('[data-kz]').forEach(c => c.onclick = () => { sel.kz = c.getAttribute('data-kz'); draw(); });
-      $('#kz').oninput = e => { sel.kz = e.target.value; };
+      if ($('#fzf')) $('#fzf').oninput = e => { sel.filter = e.target.value; const pos = e.target.selectionStart; draw(); const n = $('#fzf'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (x) { } };
+      if ($('#km')) $('#km').oninput = e => { sel.km = e.target.value.replace(/[^\d]/g, ''); };
       $('#start').oninput = e => { sel.start = e.target.value; };
-      $('#ok').onclick = async () => {
-        if (!sel.tour) return toast(T('Bitte Tour wählen', 'Choose a tour'), true);
-        overlay('…');
-        try { const v = (b.fahrzeuge || []).find(x => norm(x.kennzeichen) === norm(sel.kz)); await API.call('startTour', { tour: sel.tour, kennzeichen: sel.kz, fahrzeugId: v ? v.id : '', startIst: sel.start }); hideOverlay(); toast('✓ ' + T('Gute Fahrt!', 'Safe trip!')); state.boot = null; go('home'); }
-        catch (e) { hideOverlay(); toast(errMsg(e), true); }
-      };
+      drawInfo(); loadInfo();
+      $('#ok').onclick = () => send(false);
+    };
+    const send = async bestaetigt => {
+      if (!sel.fz) return toast(T('Bitte zuerst das Fahrzeug auswählen', 'Choose the vehicle first'), true);
+      if (!sel.km || Number(sel.km) <= 0) { toast(T('Bitte den Kilometerstand eintragen', 'Enter the odometer reading'), true); const k = $('#km'); if (k) k.focus(); return; }
+      if (!sel.tour) return toast(T('Bitte Tour wählen', 'Choose a tour'), true);
+      overlay('…');
+      try {
+        const r = await API.call('startTour', { tour: sel.tour, kennzeichen: sel.fz.kennzeichen, fahrzeugId: sel.fz.id, kmStart: Number(sel.km), kmBestaetigt: bestaetigt, startIst: sel.start });
+        hideOverlay(); state.boot = null;
+        const warn = kmHinweisMa(r && r.km);
+        if (warn) { const s = sheet(warn + '<button class="btn" id="kmok">' + T('Verstanden', 'Got it') + '</button>'); $('#kmok', s.el).onclick = () => { s.close(); go('home'); }; }
+        else { toast('✓ ' + T('Gute Fahrt!', 'Safe trip!')); go('home'); }
+      } catch (e) {
+        hideOverlay();
+        if ((e.code === 'KM_LOW' || e.code === 'KM_HIGH') && !bestaetigt) {
+          if (await confirmDlg(e.message + '\n\n' + T('Ist der Kilometerstand ' + fmtKm(sel.km) + ' trotzdem richtig?', 'Is ' + fmtKm(sel.km) + ' still correct?'))) return send(true);
+          const k = $('#km'); if (k) { k.focus(); k.select(); } return;
+        }
+        toast(errMsg(e), true);
+      }
     };
     draw();
   }
+
+  /* ---------- Kilometer-Übersicht (Management) ---------- */
+  async function viewKilometer(frisch) {
+    render(topbar(T('Kilometer', 'Mileage'), { back: 'home' }) + '<main><div class="spinner"></div></main>');
+    let r;
+    try { r = await API.call('kmUebersicht', { frisch: !!frisch }); } catch (e) { render(topbar(T('Kilometer', 'Mileage'), { back: 'home' }) + '<main>' + card('', '<p class="danger">' + esc(errMsg(e)) + '</p>') + '</main>'); return; }
+    const [jj, mm] = r.monat.split('-');
+    let html = topbar(T('Kilometer', 'Mileage'), { back: 'home', right: '<button class="icon-btn" id="kmre" aria-label="Aktualisieren">↻</button>' }) + '<main>';
+    html += '<p class="small muted" style="margin:0 0 10px">' + MON[Number(mm) - 1] + ' ' + jj + ' · ' + T('frei', 'free') + ' ' + fmtKm(r.limitStandard) + ' km ' + T('pro Fahrzeug', 'per vehicle') + ' · ' + T('Warnung ab', 'warning from') + ' ' + r.warnProzent + ' %</p>';
+    if (r.summe && r.summe.limit && r.summe.prognose > r.summe.limit) html += card('', '<p style="margin:0">⚠️ ' + T('Alle Fahrzeuge zusammen laufen auf ca. ', 'All vehicles together head for about ') + '<b>' + fmtKm(r.summe.prognose) + ' km</b> ' + T('zu – mehr als die ', '– more than the ') + fmtKm(r.summe.limit) + T(' freien km. Tauschen allein reicht nicht; ein weiteres Fahrzeug oder kürzere Wege prüfen.', ' free km. Swapping alone is not enough.') + '</p>', 'danger');
+    if ((r.tausch || []).length) {
+      html += '<h2 class="sec">🔁 ' + T('Tauschvorschläge', 'Swap suggestions') + '</h2>';
+      r.tausch.forEach(t => {
+        const wer = (kz, fa, to) => '<b>' + esc(kz) + '</b>' + (fa || to ? '<span class="small muted"> · ' + esc([to, fa].filter(Boolean).join(' · ')) + '</span>' : '');
+        html += card('', '<div class="row wrap" style="gap:6px;align-items:center">' + wer(t.a, t.aFahrer, t.aTour) + '<span style="font-size:20px;color:var(--gold2)">⇄</span>' + wer(t.b, t.bFahrer, t.bTour) + '</div>' +
+          '<p class="small" style="margin:8px 0 4px"><b>' + esc(t.dauer.charAt(0).toUpperCase() + t.dauer.slice(1)) + '</b></p>' +
+          '<table class="kmt"><tr><td></td><td>' + T('ohne Tausch', 'no swap') + '</td><td>' + T('mit Tausch', 'with swap') + '</td></tr>' +
+          '<tr><td>' + esc(t.a) + '</td><td class="' + (t.aVorher > t.aLimit ? 'danger' : '') + '">' + fmtKm(t.aVorher) + ' km</td><td class="' + (t.aNachher > t.aLimit ? 'danger' : 'ok') + '">' + fmtKm(t.aNachher) + ' km</td></tr>' +
+          '<tr><td>' + esc(t.b) + '</td><td class="' + (t.bVorher > t.bLimit ? 'danger' : '') + '">' + fmtKm(t.bVorher) + ' km</td><td class="' + (t.bNachher > t.bLimit ? 'danger' : 'ok') + '">' + fmtKm(t.bNachher) + ' km</td></tr></table>', 'gold');
+      });
+    } else if (r.warnungen) html += card('', '<p class="small" style="margin:0">' + T('Kein sinnvoller Tausch möglich – bitte ein Ersatzfahrzeug prüfen.', 'No useful swap – consider a spare vehicle.') + '</p>');
+    else html += card('', '<p class="small ok" style="margin:0">✓ ' + T('Alle Fahrzeuge liegen im Plan – kein Tausch nötig.', 'All vehicles on track – no swap needed.') + '</p>');
+    html += '<h2 class="sec">🚐 ' + T('Fahrzeuge', 'Vehicles') + '</h2>';
+    r.fahrzeuge.forEach(k => {
+      const badge = '<span class="badge ' + (k.status === 'ok' ? 'green' : k.status === 'keine_daten' ? 'grey' : k.status === 'prognose' ? '' : 'red') + '">' + esc(k.statusText || '') + '</span>';
+      html += '<div class="card kmcard"><div class="row" style="align-items:center"><b class="grow" style="font-size:18px">' + esc(k.kennzeichen) + '</b>' + badge + '</div>' +
+        (k.status === 'keine_daten' ? '<p class="small muted" style="margin:6px 0 0">' + T('Diesen Monat noch kein Kilometerstand.', 'No reading this month yet.') + (k.letzterKm ? ' ' + T('Letzter Stand', 'Last') + ': ' + fmtKm(k.letzterKm) + ' km' + (k.letzterAm ? ' (' + fmtD(k.letzterAm) + ')' : '') : '') + '</p>' :
+        '<div class="mt">' + kmBar(k) + '</div><div class="row wrap small" style="gap:4px 14px;margin-top:6px"><span><b>' + fmtKm(k.gefahren) + '</b> / ' + fmtKm(k.limit) + ' km (' + k.prozent + ' %)</span><span class="muted">Ø ' + fmtKm(k.proTag) + ' km/' + T('Tag', 'day') + '</span><span>' + T('Prognose', 'Forecast') + ' <b class="' + (k.prognose > k.limit ? 'danger' : '') + '">' + fmtKm(k.prognose) + ' km</b></span></div>' +
+        '<p class="small muted" style="margin:4px 0 0">' + T('Stand', 'Reading') + ' ' + fmtKm(k.letzterKm) + ' km · ' + fmtD(k.letzterAm) + (k.letzteQuelle ? ' · ' + esc(k.letzteQuelle) : '') + (k.fahrer ? ' · ' + esc(k.fahrer) + (k.tour ? ' (' + esc(k.tour) + ')' : '') : '') + (k.geschaetzt ? ' · ' + T('Monatsanfang geschätzt', 'month start estimated') : '') + '</p>') + '</div>';
+    });
+    html += '<p class="small muted">' + T('Die Werte stammen aus den Kilometerständen bei Tourstart, Tourende und Übergabeprotokoll. Prognose = bisher gefahren + Ø der letzten 14 Tage bis Monatsende. Grenze und Warnschwelle änderst du unter Verwaltung → Einstellungen.', 'Based on odometer readings at tour start/end and handovers.') + '</p></main>';
+    render(html);
+    $('#kmre').onclick = () => viewKilometer(true);
+  }
+
   const norm = s => String(s || '').toUpperCase().replace(/[^A-Z0-9ÄÖÜ]/g, '');
 
   /* ---------- Tour beenden ---------- */
@@ -359,7 +454,7 @@
     if (b && b.gesperrt) { toast(T('Dieser Bereich kommt bald.', 'This area is coming soon.')); return go('home'); }
     return fn(arg);
   };
-  window.MOD = { home, routes: { heute: guard(viewHeute), tourstart: guard(viewTourStart), tourende: guard(viewTourEnd), tourberichte: guard(viewTourberichte), tagesbericht: viewTagesbericht, dienstplan: guard(viewDienstplan), urlaub: viewUrlaub, antraege: viewAntraege, abwesenheit: viewAbwesenheit, uebersicht: viewUebersicht, einstellungen: viewEinstellungen } };
+  window.MOD = { home, routes: { heute: guard(viewHeute), tourstart: viewTourStart, kilometer: () => viewKilometer(false), tourende: guard(viewTourEnd), tourberichte: guard(viewTourberichte), tagesbericht: viewTagesbericht, dienstplan: guard(viewDienstplan), urlaub: viewUrlaub, antraege: viewAntraege, abwesenheit: viewAbwesenheit, uebersicht: viewUebersicht, einstellungen: viewEinstellungen } };
   // Startseite neu zeichnen, falls bereits geladen
   if ((location.hash || '#home') === '#home' && state.user) home();
 })();

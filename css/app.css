@@ -241,3 +241,16 @@ td.kw .occ.full { background: var(--danger-bg); color: #ff8a8e; }
 .menu .tile.soon { background: #161512; border-style: dashed; color: #77705f; cursor: default; }
 .menu .tile.soon .ico { filter: grayscale(1); opacity: .45; }
 .soon-badge { display: inline-block; margin-top: 2px; padding: 2px 9px; border-radius: 999px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+
+/* Kilometer-Budget */
+.kmbar { position: relative; height: 10px; border-radius: 999px; background: #24221c; overflow: hidden; }
+.kmbar > span { display: block; height: 100%; border-radius: 999px; background: var(--ok); }
+.kmbar.warn > span { background: var(--warn); }
+.kmbar.red > span { background: var(--danger); }
+.kmbar.grey > span { background: var(--muted); }
+.kmbar > i { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--gold2); opacity: .8; }
+.kmt { width: 100%; border-collapse: collapse; font-size: 14px; }
+.kmt td { padding: 4px 6px; border-top: 1px solid var(--line); }
+.kmt tr:first-child td { border-top: 0; color: var(--muted); font-size: 12px; }
+.kmalert h3 { margin-bottom: 6px; }
+.sec { font-size: 15px; letter-spacing: .04em; text-transform: uppercase; color: var(--gold2); margin: 18px 0 8px; }
