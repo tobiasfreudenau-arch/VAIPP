@@ -151,8 +151,13 @@
     const fzList = (b.fahrzeuge || []).filter(v => !v.status || v.status === 'aktiv');
     const vorFz = (tb && (tb.fahrzeugId || tb.kennzeichenIst || tb.kennzeichen)) || plan.kennzeichen || '';
     const findFz = x => fzList.find(v => v.id === x || norm(v.kennzeichen) === norm(x));
-    const sel = { fz: vorFz ? (findFz(vorFz) || null) : null, km: (tb && tb.kmStart) || '', tour: (tb && (tb.tourIst || tb.tour)) || plan.tour || '', start: (tb && tb.startIst) || nowHM(), filter: '' };
+    const nach = state.tourNach || null; state.tourNach = null;
+    const ob = await DB.all('outbox').catch(() => []);
+    const ausstehend = ob.filter(i => i.draft && i.draft.anId === u().id).map(i => i.draft.fahrzeugId);
+    if (nach && nach.ausstehend) ausstehend.push(nach.fahrzeugId);
+    const sel = { fz: nach ? (findFz(nach.fahrzeugId) || null) : (vorFz ? (findFz(vorFz) || null) : null), km: (nach && nach.km) || (tb && tb.kmStart) || '', tour: (tb && (tb.tourIst || tb.tour)) || plan.tour || '', start: (tb && tb.startIst) || nowHM(), filter: '' };
     let info = null, infoFor = '';
+    const protokollFehlt = v => !!v && v.fahrerId !== u().id && ausstehend.indexOf(v.id) < 0 && !(tb && tb.fahrzeugId === v.id);
     const tours = b.touren || [];
     const loadInfo = async () => {
       if (!sel.fz || infoFor === sel.fz.id) return; infoFor = sel.fz.id; info = null; drawInfo();
@@ -173,7 +178,9 @@
       html += card('1 · ' + T('Fahrzeug wählen', 'Choose vehicle'), (plan.kennzeichen ? '<p class="small muted">' + T('Laut Dienstplan', 'Per schedule') + ': <b>' + esc(plan.kennzeichen) + '</b></p>' : '') +
         (fzList.length > 12 ? '<input type="search" id="fzf" value="' + esc(sel.filter) + '" placeholder="' + T('Kennzeichen suchen …', 'Search plate …') + '" autocapitalize="characters">' : '') +
         '<div class="chips mt" style="grid-template-columns:repeat(auto-fill,minmax(104px,1fr))">' + (chips || '<p class="small muted">' + T('Kein Fahrzeug gefunden.', 'No vehicle found.') + '</p>') + '</div>', sel.fz ? '' : 'gold');
-      html += card('2 · ' + T('Kilometerstand (Pflicht)', 'Odometer (required)'), sel.fz
+      const fehlt = protokollFehlt(sel.fz);
+      if (fehlt) html += card('2 · ' + T('Übergabeprotokoll (Pflicht)', 'Handover protocol (required)'), '<p style="margin:0 0 6px">🔁 <b>' + esc(sel.fz.kennzeichen) + '</b> ' + T('ist dir noch nicht zugeordnet', 'is not assigned to you yet') + (sel.fz.fahrer ? ' (' + T('zuletzt', 'last') + ': ' + esc(sel.fz.fahrer) + ')' : '') + '.</p><p class="small muted" style="margin:0 0 10px">' + T('Bevor du losfährst, mach bitte das Übergabeprotokoll – danach geht es automatisch hier weiter.', 'Before you drive off, please complete the handover protocol – you will be brought back here afterwards.') + '</p><button class="btn" id="doprot">📋 ' + T('Übergabeprotokoll jetzt machen', 'Do handover protocol now') + '</button>', 'danger');
+      else html += card('2 · ' + T('Kilometerstand (Pflicht)', 'Odometer (required)'), sel.fz
         ? '<input type="number" inputmode="numeric" class="huge" id="km" value="' + esc(sel.km) + '" placeholder="' + T('z. B. 123456', 'e.g. 123456') + '"><div id="kminfo"></div>'
         : '<p class="small muted" style="margin:0">' + T('Bitte zuerst oben das Fahrzeug auswählen – dann wird der Kilometerstand diesem Fahrzeug zugeordnet.', 'Choose the vehicle first – the reading is then assigned to it.') + '</p>', sel.fz && !sel.km ? 'gold' : '');
       html += card('3 · ' + T('Tour', 'Tour'), (plan.tour ? '<p class="small muted">' + T('Laut Dienstplan', 'Per schedule') + ': <b>' + esc(plan.tour) + '</b> ' + esc(plan.area || '') + '</p>' : '') + '<div class="chips" style="grid-template-columns:repeat(auto-fill,minmax(64px,1fr))">' + tours.map(t => '<button class="chip ' + (sel.tour === t.code ? 'on' : '') + '" data-tour="' + esc(t.code) + '">' + esc(t.code) + '</button>').join('') + '</div>');
@@ -185,16 +192,19 @@
       if ($('#fzf')) $('#fzf').oninput = e => { sel.filter = e.target.value; const pos = e.target.selectionStart; draw(); const n = $('#fzf'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (x) { } };
       if ($('#km')) $('#km').oninput = e => { sel.km = e.target.value.replace(/[^\d]/g, ''); };
       $('#start').oninput = e => { sel.start = e.target.value; };
-      drawInfo(); loadInfo();
+      if ($('#doprot')) $('#doprot').onclick = () => A.startDraft({ fahrzeugId: sel.fz.id, zurTour: true });
+      if (fehlt) $('#ok').classList.add('disabled');
+      drawInfo(); if (!fehlt) loadInfo();
       $('#ok').onclick = () => send(false);
     };
     const send = async bestaetigt => {
       if (!sel.fz) return toast(T('Bitte zuerst das Fahrzeug auswählen', 'Choose the vehicle first'), true);
+      if (protokollFehlt(sel.fz)) return toast(T('Bitte zuerst das Übergabeprotokoll machen', 'Please complete the handover protocol first'), true);
       if (!sel.km || Number(sel.km) <= 0) { toast(T('Bitte den Kilometerstand eintragen', 'Enter the odometer reading'), true); const k = $('#km'); if (k) k.focus(); return; }
       if (!sel.tour) return toast(T('Bitte Tour wählen', 'Choose a tour'), true);
       overlay('…');
       try {
-        const r = await API.call('startTour', { tour: sel.tour, kennzeichen: sel.fz.kennzeichen, fahrzeugId: sel.fz.id, kmStart: Number(sel.km), kmBestaetigt: bestaetigt, startIst: sel.start });
+        const r = await API.call('startTour', { tour: sel.tour, kennzeichen: sel.fz.kennzeichen, fahrzeugId: sel.fz.id, kmStart: Number(sel.km), kmBestaetigt: bestaetigt, protokollAusstehend: ausstehend.indexOf(sel.fz.id) >= 0, startIst: sel.start });
         hideOverlay(); state.boot = null;
         const warn = kmHinweisMa(r && r.km);
         if (warn) { const s = sheet(warn + '<button class="btn" id="kmok">' + T('Verstanden', 'Got it') + '</button>'); $('#kmok', s.el).onclick = () => { s.close(); go('home'); }; }
@@ -205,6 +215,7 @@
           if (await confirmDlg(e.message + '\n\n' + T('Ist der Kilometerstand ' + fmtKm(sel.km) + ' trotzdem richtig?', 'Is ' + fmtKm(sel.km) + ' still correct?'))) return send(true);
           const k = $('#km'); if (k) { k.focus(); k.select(); } return;
         }
+        if (e.code === 'PROTOKOLL_NOETIG') { sel.fz = Object.assign({}, sel.fz, { fahrerId: '' }); draw(); }
         toast(errMsg(e), true);
       }
     };

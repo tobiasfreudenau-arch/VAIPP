@@ -144,8 +144,11 @@
   }
 
   /* ---------- Assistent (Wizard) ---------- */
-  function startDraft() {
+  function startDraft(opts) {
+    opts = opts || {};
     state.draft = { clientId: uuid(), step: 1, createdAt: new Date().toISOString(), fahrzeugId: '', neuesFahrzeug: null, ctx: null, anlass: 'wechsel', vonId: '', anId: state.user.id, km: '', tank: '', bedingungen: [], fotos: {}, extraFotos: [], neueSchaeden: [], bestaetigteSchaeden: [], inventar: {}, innenraumBeschaedigt: false, innenraumText: '', warnleuchten: '', bemerkung: '', unterschriftVon: '', unterschriftAn: '', abwesend: '' };
+    if (opts.fahrzeugId) { state.draft.autoFahrzeug = opts.fahrzeugId; state.draft.anlass = 'wechsel'; }
+    if (opts.zurTour) state.draft.zurTour = true;
     go('new');
   }
   async function saveDraft() { if (!state.draft) return; state.draft.updatedAt = new Date().toISOString(); await DB.put('drafts', state.draft); }
@@ -167,6 +170,7 @@
   async function viewWizard() {
     if (!state.draft) { const drafts = await DB.all('drafts'); if (drafts.length) state.draft = drafts.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))[0]; else return startDraft(); }
     await boot();
+    if (state.draft.autoFahrzeug && (state.draft.step || 1) === 1 && (state.boot.fahrzeuge || []).find(v => v.id === state.draft.autoFahrzeug)) { const id = state.draft.autoFahrzeug; delete state.draft.autoFahrzeug; return selectVehicle(id); }
     const s = state.draft.step || 1;
     const fns = [stepVehicle, stepPeople, stepKm, stepPhotos, stepDamages, stepInterior, stepSummary, stepSign];
     fns[s - 1]();
@@ -447,6 +451,7 @@
 
   async function submitDraft() {
     const d = state.draft;
+    const zt = d.zurTour ? { fahrzeugId: d.fahrzeugId, km: d.km } : null;
     const item = { clientId: d.clientId, draft: d, createdAt: new Date().toISOString() };
     await DB.put('outbox', item);
     overlay(t('sending'));
@@ -465,18 +470,19 @@
       await DB.del('outbox', d.clientId);
       state.draft = null; hideOverlay();
       state.boot = null;
-      viewDone(r);
+      if (zt) state.tourNach = zt;
+      viewDone(r, zt);
     } catch (e) {
       hideOverlay();
-      if (e.code === 'NET' || e.code === 'CONFIG') { state.draft = null; toast(t('queued')); go('home'); }
+      if (e.code === 'NET' || e.code === 'CONFIG') { state.draft = null; toast(t('queued')); if (zt) { state.tourNach = Object.assign({ ausstehend: true }, zt); go('tourstart'); } else go('home'); }
       else { toast(errMsg(e), true); }
     }
   }
-  function viewDone(r) {
+  function viewDone(r, zt) {
     render(topbar(t('sent')) + '<main><div class="card ok center"><div style="font-size:52px">✓</div><h1>' + t('sent') + '</h1><p>' + t('sentNo') + ' <b>' + esc(r.nr) + '</b></p>' +
       (r.neueSchaeden ? '<p class="danger"><b>' + r.neueSchaeden + ' ' + t('newDamagesCount') + '</b></p>' : '') + (r.einseitig ? '<p class="small muted">' + t('notPresentHint') + '</p>' : '') + (!r.pdfOk ? '<p class="small muted">PDF folgt später.</p>' : '') + '</div>' +
       ((r.hinweise || []).length ? '<div class="card gold"><h3>' + t('hints') + '</h3>' + r.hinweise.map(h => '<p class="small">' + esc(h) + '</p>').join('') + '</div>' : '') +
-      '<button class="btn" data-nav="home">' + t('home') + '</button><button class="btn ghost mt" data-nav="protocol/' + r.id + '">' + t('protocol') + ' ' + esc(r.nr) + '</button></main>');
+      (zt ? '<button class="btn" data-nav="tourstart">▶ ' + (I18N.lang === 'en' ? 'Continue to tour start' : 'Weiter zum Tourstart') + '</button>' : '<button class="btn" data-nav="home">' + t('home') + '</button>') + '<button class="btn ghost mt" data-nav="protocol/' + r.id + '">' + t('protocol') + ' ' + esc(r.nr) + '</button></main>');
   }
 
   /* ---------- Protokolle ---------- */
