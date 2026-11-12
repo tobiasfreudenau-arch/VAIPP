@@ -114,8 +114,11 @@
     render(topbar(t('app'), { right: '<button class="icon-btn" data-nav="settings">⚙︎</button>' }) + '<main><div class="spinner"></div></main>');
     const b = await boot();
     if (!b) return go('login');
+    // Erweiterte Startseite (modules.js) inzwischen geladen? Dann nicht mit der alten überschreiben (Menü sprang zwischen 6 und 14 Kacheln)
+    if (window.MOD && MOD.home) return;
     const drafts = await DB.all('drafts');
     const outbox = await DB.all('outbox');
+    if (window.MOD && MOD.home) return;
     const draft = drafts.filter(d => !outbox.find(o => o.clientId === d.clientId)).sort((a, b2) => (b2.updatedAt || '').localeCompare(a.updatedAt || ''))[0];
     let html = topbar(t('app'), { right: '<button class="icon-btn" data-nav="settings">⚙︎</button>' }) + '<main>';
     html += '<p class="muted" style="margin-bottom:12px">Hallo ' + esc(state.user.vorname || state.user.name) + '</p>';
@@ -688,6 +691,7 @@
   window.addEventListener('offline', () => { if ((location.hash || '#home') === '#home') route(); });
   API.onProgress(ev => { if (ev.type === 'sent') { toast(t('sent') + ' ' + (ev.result && ev.result.nr || '')); if ((location.hash || '#home') === '#home') route(); } });
   if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) navigator.serviceWorker.register('sw.js').catch(() => { });
-  route();
+  // erst starten, wenn alle Skripte (auch modules.js) geladen sind
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', route, { once: true }); else route();
   if (state.user) setTimeout(() => API.flush(), 1500);
 })();

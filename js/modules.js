@@ -578,5 +578,5 @@
   };
   window.MOD = { home, routes: { heute: guard(viewHeute), tourstart: viewTourStart, kilometer: () => viewKilometer(false), tourende: viewTourEnd, nachnahmen: viewNachnahmen, tourberichte: guard(viewTourberichte), tagesbericht: viewTagesbericht, dienstplan: guard(viewDienstplan), urlaub: viewUrlaub, antraege: viewAntraege, abwesenheit: viewAbwesenheit, uebersicht: viewUebersicht, einstellungen: viewEinstellungen } };
   // Startseite neu zeichnen, falls bereits geladen
-  if ((location.hash || '#home') === '#home' && state.user) home();
+  if ((location.hash || '#home') === '#home' && state.user && document.readyState !== 'loading') home();
 })();
