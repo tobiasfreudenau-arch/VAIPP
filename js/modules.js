@@ -185,19 +185,32 @@
     return true;
   };
   // Hinweis für Fahrer: Geld übergeben – der Empfänger bestätigt in SEINER App
-  const nnHinweis = () => '<p class="small muted" style="margin:6px 0 0">' + T('Gib das Geld an ' + (((state.boot && state.boot.nachnahmeEmpfaengerListe) || []).map(x => x.split(' ')[0]).join(', ') || 'Tobias') + '. Der Empfänger bestätigt den Erhalt in seiner App mit Unterschrift.', 'Hand the cash to ' + (((state.boot && state.boot.nachnahmeEmpfaengerListe) || []).map(x => x.split(' ')[0]).join(', ') || 'Tobias') + '. The receiver confirms receipt in their app with a signature.') + '</p>';
+  const nnHinweis = () => '<p class="small muted" style="margin:6px 0 0">' + T('Beim Absenden unterschreibst du. Gib das Geld an ' + (((state.boot && state.boot.nachnahmeEmpfaengerListe) || []).map(x => x.split(' ')[0]).join(', ') || 'Tobias') + ' – der Empfänger bestätigt den Betrag in seiner App und unterschreibt gegen.', 'You sign when submitting. Hand the cash to ' + (((state.boot && state.boot.nachnahmeEmpfaengerListe) || []).map(x => x.split(' ')[0]).join(', ') || 'Tobias') + ' – the receiver confirms the amount in their app and countersigns.') + '</p>';
+  // Fahrer unterschreibt die Nachnahme auf seinem eigenen Handy (beim Tourende)
+  function nachnahmeFahrerSheet(betrag, onSign) {
+    const s = sheet('<h3>💶 ' + T('Nachnahme unterschreiben', 'Sign cash on delivery') + '</h3><p style="font-size:28px;margin:4px 0 6px"><b>' + fmtEur(betrag) + '</b></p><p class="small muted" style="margin:0 0 8px">' + T('Mit deiner Unterschrift bestätigst du diesen Betrag. Danach übergibst du das Geld – der Empfänger zeichnet in seiner App gegen.', 'With your signature you confirm this amount. Then hand over the cash – the receiver countersigns in their app.') + '</p>' +
+      '<label class="lbl">' + T('Deine Unterschrift', 'Your signature') + '</label><div class="sig-box" id="nn-sf"></div><button type="button" class="btn ghost" id="nn-cf" style="min-height:36px">' + T('Löschen', 'Clear') + '</button>' +
+      '<button class="btn mt" id="nn-ok">✓ ' + T('Unterschreiben & Tour melden', 'Sign & report tour') + '</button>');
+    const pf = SIG($('#nn-sf', s.el), {});
+    $('#nn-cf', s.el).onclick = () => pf.clear();
+    $('#nn-ok', s.el).onclick = async () => {
+      if (pf.isEmpty()) return toast(T('Bitte unterschreiben', 'Please sign'), true);
+      const ok = await onSign(pf.dataUrl()); if (ok !== false) s.close();
+    };
+  }
   // Empfänger: Erhalt bestätigen und auf dem eigenen Handy unterschreiben
   function nachnahmeBestaetigen(n, onDone) {
     const s = sheet('<h3>💶 ' + T('Nachnahme erhalten', 'Cash received') + '</h3><p style="margin:0">' + T('von', 'from') + ' <b>' + esc(n.name) + '</b>' + (n.tour ? ' · ' + esc(n.tour) : '') + ' · ' + fmtD(n.datum) + '</p><p style="font-size:28px;margin:6px 0 10px"><b>' + fmtEur(n.betrag) + '</b></p>' +
+      (n.sigFahrerId ? '<p class="small" style="margin:0 0 4px">✓ ' + T('vom Fahrer unterschrieben', 'signed by the driver') + '</p>' : '') +
       '<p class="small muted" style="margin:0 0 8px">' + T('Bitte nur bestätigen, wenn du den Betrag vollständig in der Hand hast.', 'Only confirm once you hold the full amount.') + '</p>' +
-      '<label class="lbl">' + T('Deine Unterschrift', 'Your signature') + '</label><div class="sig-box" id="nn-se"></div><button type="button" class="btn ghost" id="nn-ce" style="min-height:36px">' + T('Löschen', 'Clear') + '</button>' +
-      '<button class="btn mt" id="nn-ok">✓ ' + T('Erhalt bestätigen', 'Confirm receipt') + '</button>');
+      '<label class="lbl">' + T('Deine Gegenzeichnung', 'Your countersignature') + '</label><div class="sig-box" id="nn-se"></div><button type="button" class="btn ghost" id="nn-ce" style="min-height:36px">' + T('Löschen', 'Clear') + '</button>' +
+      '<button class="btn mt" id="nn-ok">✓ ' + T('Betrag bestätigen & gegenzeichnen', 'Confirm amount & countersign') + '</button>');
     const pe = SIG($('#nn-se', s.el), {});
     $('#nn-ce', s.el).onclick = () => pe.clear();
     $('#nn-ok', s.el).onclick = async () => {
       if (pe.isEmpty()) return toast(T('Bitte unterschreiben', 'Please sign'), true);
       overlay('…');
-      try { await API.call('nachnahmeAbgeben', { id: n.id, sigEmpfaenger: pe.dataUrl() }); hideOverlay(); s.close(); state.boot = null; toast('✓ ' + T('Erhalt bestätigt', 'Receipt confirmed')); onDone && onDone(); }
+      try { await API.call('nachnahmeAbgeben', { id: n.id, sigEmpfaenger: pe.dataUrl() }); hideOverlay(); s.close(); state.boot = null; toast('✓ ' + T('Bestätigt & gegengezeichnet', 'Confirmed & countersigned')); onDone && onDone(); }
       catch (e) { hideOverlay(); toast(errMsg(e), true); }
     };
   }
@@ -368,14 +381,15 @@
           const r = await API.call('endTour', Object.assign(payload, extra || {}), { timeout: 90000 });
           hideOverlay(); state.boot = null;
           render(topbar(T('Gemeldet', 'Reported')) + '<main><div class="card ok center"><div style="font-size:52px">✓</div><h1>' + T('Tour gemeldet', 'Tour reported') + '</h1><p>' + esc(r.tourIst) + ' · ' + esc(r.kennzeichenIst) + ' · ' + fmtKm(r.kmEnde) + ' km</p>' +
-            (r.nachnahme ? '<p>💶 ' + fmtEur(r.nachnahme.betrag) + ' – ' + (r.nachnahme.status === 'offen' ? T('bitte übergeben – der Empfänger bestätigt in seiner App', 'please hand over – the receiver confirms in their app') : T('bestätigt von', 'confirmed by') + ' ' + esc(r.nachnahme.empfaenger)) + '</p>' : '') +
+            (r.nachnahme ? '<p>💶 ' + fmtEur(r.nachnahme.betrag) + ' – ' + (r.nachnahme.status === 'offen' ? T('unterschrieben – bitte übergeben, der Empfänger zeichnet in seiner App gegen', 'signed – please hand over, the receiver countersigns in their app') : T('bestätigt von', 'confirmed by') + ' ' + esc(r.nachnahme.empfaenger)) + '</p>' : '') +
             (r.kmAuffaellig ? '<p class="small danger">' + esc(r.kmAuffaellig) + '</p>' : '') + '</div>' +
             (f.neueSchaeden === 'ja' && v ? '<button class="btn" id="np">📋 ' + T('Schaden jetzt mit Protokoll dokumentieren', 'Document damage with a protocol now') + '</button>' : '') + '<button class="btn ghost mt" data-nav="home">' + A.t('home') + '</button></main>');
           if ($('#np')) $('#np').onclick = () => A.startDraft({ fahrzeugId: v.id });
           return true;
         } catch (e) { hideOverlay(); toast(errMsg(e), true); return false; }
       };
-      senden();
+      if (betrag > 0) nachnahmeFahrerSheet(betrag, sig => senden({ sigFahrer: sig }));
+      else senden();
     };
     draw();
   }
