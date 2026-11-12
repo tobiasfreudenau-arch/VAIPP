@@ -1,7 +1,7 @@
 // VIP Freudenau GmbH App – Service Worker
 // Strategie: Dateien sofort aus dem Speicher liefern, im Hintergrund aktualisieren.
 // Bei jeder neuen Version CACHE hochzählen, dann holt sich das Handy alles einmal neu.
-const CACHE = 'vip-app-v1.5.0';
+const CACHE = 'vip-app-v1.6.0';
 const FILES = ['./', './index.html', './css/app.css', './js/config.js', './js/i18n.js', './js/db.js', './js/api.js', './js/img.js', './js/sig.js', './js/sil.js', './js/app.js', './js/modules.js', './manifest.webmanifest', './img/logo.png', './img/logo-viparcel.png', './img/logo-viparking.png', './img/icon-192.png', './img/apple-touch-icon.png'];
 const LATER = ['./js/van3d.js', './img/icon-512.png'];
 

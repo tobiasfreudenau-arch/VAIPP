@@ -285,15 +285,17 @@
     const conds = [['dunkelheit', 'dark'], ['nass', 'wet'], ['schnee', 'snow'], ['verschmutzt', 'dirty']];
     const body = '<label class="lbl">' + t('km') + '</label><input type="number" inputmode="numeric" pattern="[0-9]*" id="km" class="huge" value="' + esc(d.km) + '" placeholder="0">' +
       (lp && lp.km !== '' ? '<p class="small muted mt">' + t('lastKm', { km: lp.km, date: fmtD(lp.datum) }) + '</p>' : '') + '<div class="field-error hidden" id="km-warn"></div>' +
+      '<div class="photo-grid mt" style="grid-template-columns:1fr 1fr">' + await photoTile('tacho', d.fotos.tacho, t('kmPhoto'), true) + '<div class="small muted" style="align-self:center">' + (I18N.lang === 'en' ? 'Required – the reading is checked against the photo.' : 'Pflicht – der Kilometerstand wird mit dem Foto abgeglichen.') + '</div></div>' +
       '<h3 class="mt">' + t('tank') + '</h3><div class="chips five">' + tanks.map(x => '<button class="chip ' + (d.tank === x ? 'on' : '') + '" data-tank="' + x + '">' + x + '</button>').join('') + '</div>' +
       '<h3 class="mt">' + t('conditions') + '</h3><div class="chips">' + conds.map(c => '<button class="chip ' + (d.bedingungen.indexOf(c[0]) >= 0 ? 'on' : '') + '" data-cond="' + c[0] + '">' + t(c[1]) + '</button>').join('') + '</div>';
     render(wizardShell(3, body));
     const kmIn = $('#km');
     const checkKm = () => { const v = Number(kmIn.value); const w = $('#km-warn'); if (lp && lp.km !== '' && v && v < Number(lp.km)) { w.textContent = t('kmWarn', { km: lp.km }); w.classList.remove('hidden'); } else w.classList.add('hidden'); };
     kmIn.oninput = () => { d.km = kmIn.value; checkKm(); saveDraft(); }; checkKm();
+    $('[data-photo="tacho"]').onclick = async () => { const id = await takePhoto('tacho'); if (id) { d.fotos.tacho = id; await saveDraft(); stepKm(); } };
     $$('[data-tank]').forEach(c => c.onclick = () => { d.tank = c.getAttribute('data-tank'); $$('[data-tank]').forEach(x => x.classList.toggle('on', x === c)); saveDraft(); });
     $$('[data-cond]').forEach(c => c.onclick = () => { const k = c.getAttribute('data-cond'); const i = d.bedingungen.indexOf(k); if (i >= 0) d.bedingungen.splice(i, 1); else d.bedingungen.push(k); c.classList.toggle('on'); saveDraft(); });
-    wizNav(3, () => !d.km ? t('kmNeeded') : null);
+    wizNav(3, () => (!d.km || !d.fotos.tacho) ? t('kmNeeded') : null);
   }
 
   // --- Schritt 4: Rundgang-Fotos
@@ -406,7 +408,7 @@
     const miss = [];
     if (!d.fahrzeugId && !d.neuesFahrzeug) miss.push(t('s1'));
     if (!d.vonId || !d.anId) miss.push(t('s2'));
-    if (!d.km) miss.push(t('s3'));
+    if (!d.km || !d.fotos.tacho) miss.push(t('s3'));
     if (PHOTO_REQ.some(x => !d.fotos[x])) miss.push(t('s4'));
     const pend = await API.pendingPhotos(d.clientId);
     const fotoCount = Object.keys(d.fotos).length + d.extraFotos.length + d.neueSchaeden.filter(n => n.localPhotoId).length;
@@ -451,7 +453,7 @@
 
   async function submitDraft() {
     const d = state.draft;
-    const zt = d.zurTour ? { fahrzeugId: d.fahrzeugId, km: d.km } : null;
+    const zt = d.zurTour ? { fahrzeugId: d.fahrzeugId, km: d.km, fotoLocalId: d.fotos && d.fotos.tacho } : null;
     const item = { clientId: d.clientId, draft: d, createdAt: new Date().toISOString() };
     await DB.put('outbox', item);
     overlay(t('sending'));

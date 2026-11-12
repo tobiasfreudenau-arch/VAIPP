@@ -11,7 +11,7 @@ window.I18N = (function () {
     draftFound: 'Angefangenes Protokoll', continueDraft: 'Weiter', discardDraft: 'Verwerfen',
     offline: 'Kein Netz – Eingaben werden gespeichert und später gesendet.',
     step: 'Schritt', of: 'von', next: 'Weiter', back: 'Zurück', done: 'Fertig', cancel: 'Abbrechen', backToVehicle: 'zurück zum Fahrzeug', save: 'Speichern', send: 'Protokoll absenden', skip: 'Überspringen',
-    s1: 'Fahrzeug', s2: 'Anlass & Personen', s3: 'Kilometer & Tank', s4: 'Rundgang-Fotos', s5: 'Schäden', s6: 'Innenraum & Inventar', s7: 'Zusammenfassung', s8: 'Unterschriften',
+    s1: 'Fahrzeug', s2: 'Anlass & Personen', s3: 'Tacho & Tank', s4: 'Rundgang-Fotos', s5: 'Schäden', s6: 'Innenraum & Inventar', s7: 'Zusammenfassung', s8: 'Unterschriften',
     pickVehicle: 'Fahrzeug antippen', orPlate: 'oder Kennzeichen eingeben', plate: 'Kennzeichen', model: 'Modell (optional)', newVehicle: 'Neues Fahrzeug anlegen', recent: 'Zuletzt', search: 'Suchen …',
     reason: 'Anlass', from: 'Übergeben von', to: 'Übergeben an', me: 'Ich', company: 'Firma / Hof', pickPerson: 'Person wählen', lastDriver: 'Letzter Fahrer laut Protokoll',
     km: 'Kilometerstand', kmPhoto: 'Foto vom Tacho', tank: 'Tankstand', kmWarn: 'Kleiner als im letzten Protokoll ({km} km) – bitte prüfen!', lastKm: 'Letztes Protokoll: {km} km am {date}',
@@ -31,7 +31,7 @@ window.I18N = (function () {
     last30: 'Letzte 30 Tage', vehiclesNoProtocol: 'Fahrzeuge ohne Protokoll ≥ 14 Tage', oneSided: 'Einseitige Protokolle (offen)', disputedProtocols: 'Widersprochene Protokolle', withHints: 'Protokolle mit Hinweisen', missingParts: 'Fehlende Inventarteile', byDriver: 'Neue Schäden je Fahrer', byVehicle: 'Neue Schäden je Fahrzeug', recentProtocols: 'Letzte Protokolle', kmOverview: 'Kilometerstände',
     addUser: 'Mitarbeiter anlegen', role: 'Rolle', area: 'Bereich', active: 'Aktiv', pwSet: 'Passwort gesetzt', resetPw: 'Passwort zurücksetzen', resetPwHint: 'Der Mitarbeiter legt beim nächsten Öffnen über „Passwort festlegen“ ein neues Passwort fest.', firstName: 'Vorname', lastName: 'Nachname',
     roleAdmin: 'Admin', roleDispo: 'Disposition', roleDriver: 'Fahrer / Mitarbeiter', exportCsv: 'CSV-Export', openSheet: 'Tabelle öffnen', openFolder: 'Drive-Ordner öffnen',
-    errNet: 'Keine Verbindung zum Server.', errGeneric: 'Es ist ein Fehler aufgetreten.', reallyDiscard: 'Angefangenes Protokoll wirklich verwerfen?', photoNeeded: 'Bitte zuerst die Pflichtfotos machen.', plateNeeded: 'Bitte ein Fahrzeug wählen.', personNeeded: 'Bitte Übergeber und Übernehmer wählen.', kmNeeded: 'Bitte Kilometerstand eingeben.', samePerson: 'Übergeber und Übernehmer müssen verschieden sein.',
+    errNet: 'Keine Verbindung zum Server.', errGeneric: 'Es ist ein Fehler aufgetreten.', reallyDiscard: 'Angefangenes Protokoll wirklich verwerfen?', photoNeeded: 'Bitte zuerst die Pflichtfotos machen.', plateNeeded: 'Bitte ein Fahrzeug wählen.', personNeeded: 'Bitte Übergeber und Übernehmer wählen.', kmNeeded: 'Bitte Kilometerstand eingeben und Tacho fotografieren.', samePerson: 'Übergeber und Übernehmer müssen verschieden sein.',
     installHint: 'Tipp: Über „Teilen“ → „Zum Home-Bildschirm“ wird die App installiert.',
     rotateHint: 'Mit einem Finger drehen, mit zwei Fingern zoomen.'
   };
@@ -66,7 +66,7 @@ window.I18N = (function () {
     last30: 'Last 30 days', vehiclesNoProtocol: 'Vehicles without protocol ≥ 14 days', oneSided: 'One-sided protocols (open)', disputedProtocols: 'Disputed protocols', withHints: 'Protocols with notes', missingParts: 'Missing inventory', byDriver: 'New damages per driver', byVehicle: 'New damages per vehicle', recentProtocols: 'Recent protocols', kmOverview: 'Odometer readings',
     addUser: 'Add staff member', role: 'Role', area: 'Area', active: 'Active', pwSet: 'Password set', resetPw: 'Reset password', resetPwHint: 'The staff member sets a new password via "Set password" next time.', firstName: 'First name', lastName: 'Last name',
     roleAdmin: 'Admin', roleDispo: 'Dispatch', roleDriver: 'Driver / staff', exportCsv: 'CSV export', openSheet: 'Open sheet', openFolder: 'Open Drive folder',
-    errNet: 'No connection to the server.', errGeneric: 'An error occurred.', reallyDiscard: 'Really discard the unfinished handover?', photoNeeded: 'Please take the required photos first.', plateNeeded: 'Please choose a vehicle.', personNeeded: 'Please choose both persons.', kmNeeded: 'Please enter the odometer reading.', samePerson: 'Both persons must be different.',
+    errNet: 'No connection to the server.', errGeneric: 'An error occurred.', reallyDiscard: 'Really discard the unfinished handover?', photoNeeded: 'Please take the required photos first.', plateNeeded: 'Please choose a vehicle.', personNeeded: 'Please choose both persons.', kmNeeded: 'Please enter the odometer reading and photograph it.', samePerson: 'Both persons must be different.',
     installHint: 'Tip: use "Share" → "Add to Home Screen" to install the app.',
     rotateHint: 'Rotate with one finger, zoom with two.'
   };
