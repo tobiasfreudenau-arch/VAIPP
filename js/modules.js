@@ -22,6 +22,9 @@
   const mgmt = () => A.isMgmt() || grp() === 'management';
   const canUps = () => ['ups', 'beide', 'management'].indexOf(grp()) >= 0;
   const canPark = () => ['parkplatz', 'beide', 'management'].indexOf(grp()) >= 0;
+  // Parkplatz-Team: nur Schaden melden (Protokoll) + Urlaub – keine Tour, keine Nachnahme als Fahrer
+  const nurPark = () => grp() === 'parkplatz' && !mgmt();
+  const nurParkGuard = fn => (...a) => { if (nurPark()) { location.hash = '#home'; return; } return fn(...a); };
   const errMsg = e => (e && e.message) || 'Fehler';
   const pill = g => { const x = GRP[g] || GRP.ups; return '<span class="badge" style="background:' + x.col + ';color:' + x.txt + ';border-color:' + x.col + '">' + esc(x.de) + '</span>'; };
   const card = (title, inner, cls) => '<div class="card ' + (cls || '') + '">' + (title ? '<h3>' + esc(title) + '</h3>' : '') + inner + '</div>';
@@ -81,7 +84,7 @@
       heute += '<div class="small mt" style="border-top:1px solid var(--line);padding-top:8px"><span class="muted">' + T('Morgen', 'Tomorrow') + ' · ' + fmtShort(m.datum) + ':</span> ' + mtxt + '</div>';
     }
     const locked = !!b.gesperrt;
-    if (!locked && (canUps() || canPark())) html += '<div class="card gold"><h3>' + T('Heute', 'Today') + ' · ' + fmtShort(h.datum || today()) + '</h3>' + heute + (canUps() && !h.abwesenheit ? '<div class="btn-row mt">' + (!tb || tb.status !== 'beendet' ? '<button class="btn ' + (tb ? 'secondary' : '') + '" data-nav="tourstart">▶ ' + T('Tour starten', 'Start tour') + '</button>' : '') + '<button class="btn ' + (tb && tb.status === 'beendet' ? 'ghost' : 'secondary') + '" data-nav="tourende">■ ' + T('Tour beenden', 'End tour') + '</button></div>' : '') + '</div>';
+    if (!locked && !nurPark() && (canUps() || canPark())) html += '<div class="card gold"><h3>' + T('Heute', 'Today') + ' · ' + fmtShort(h.datum || today()) + '</h3>' + heute + (canUps() && !h.abwesenheit ? '<div class="btn-row mt">' + (!tb || tb.status !== 'beendet' ? '<button class="btn ' + (tb ? 'secondary' : '') + '" data-nav="tourstart">▶ ' + T('Tour starten', 'Start tour') + '</button>' : '') + '<button class="btn ' + (tb && tb.status === 'beendet' ? 'ghost' : 'secondary') + '" data-nav="tourende">■ ' + T('Tour beenden', 'End tour') + '</button></div>' : '') + '</div>';
     if (locked && canUps()) {
       const th = b.tourHeute;
       html += '<div class="card gold"><h3>' + T('Heute', 'Today') + ' · ' + fmtShort(today()) + '</h3>' + (th && th.kmStart
@@ -93,14 +96,16 @@
     if (outbox.length) html += '<div class="card gold"><h2>' + A.t('pending') + ' (' + outbox.length + ')</h2><p class="small muted">' + A.t('pendingHint') + '</p></div>';
     if (draft) html += '<div class="card gold"><h2>' + A.t('draftFound') + '</h2><p class="small muted">' + esc(draft.kennzeichenAnzeige || '–') + ' · ' + A.t('step') + ' ' + (draft.step || 1) + '/8</p><div class="btn-row"><button class="btn" id="cont">' + A.t('continueDraft') + '</button><button class="btn ghost" id="disc">' + A.t('discardDraft') + '</button></div></div>';
     (b.offeneBestaetigungen || []).forEach(p => { html += '<div class="card danger"><h2>' + A.t('toConfirm') + '</h2><button class="list-item" data-nav="protocol/' + p.id + '"><div class="main"><b>' + esc(p.kennzeichen) + ' · ' + esc(p.nr) + '</b><span>' + fmtDT(p.datum) + ' · ' + esc(p.von) + ' → ' + esc(p.an) + '</span></div><div class="chev">›</div></button></div>'; });
-    html += '<button class="btn big" id="new">＋ ' + A.t('newProtocol') + '</button><div class="gold-line"></div>';
+    if (nurPark()) html += '<button class="btn big" id="new">⚠️ ' + T('Schaden melden', 'Report damage') + '</button><p class="small muted center" style="margin:6px 0 0">' + T('Schaden am Fahrzeug? Fahrzeug wählen, Fotos machen, Schaden antippen.', 'Damage on a vehicle? Choose vehicle, take photos, tap the damage.') + '</p><div class="gold-line"></div>';
+    else html += '<button class="btn big" id="new">＋ ' + A.t('newProtocol') + '</button><div class="gold-line"></div>';
     const tile = (nav, ico, lbl, cnt) => '<button class="tile" data-nav="' + nav + '"><span class="ico">' + ico + '</span>' + lbl + (cnt ? '<span class="cnt badge red">' + cnt + '</span>' : '') + '</button>';
     const soon = (ico, lbl) => '<button class="tile soon" type="button" aria-disabled="true"><span class="ico">' + ico + '</span>' + lbl + '<span class="soon-badge">' + T('Kommt bald', 'Coming soon') + '</span></button>';
     if ((b.nachnahmeOffen || []).length) html += '<div class="card danger"><h3>💶 ' + T('Nachnahme noch übergeben', 'Cash still to hand over') + '</h3><p class="small" style="margin:0">' + b.nachnahmeOffen.map(n => fmtD(n.datum) + ': <b>' + fmtEur(n.betrag) + '</b>').join(' · ') + '</p>' + nnHinweis() + '</div>';
     const zuB = b.nachnahmeZuBestaetigen || [];
     if (zuB.length) html += '<button class="card gold" data-nav="nachnahmen" style="display:block;width:100%;text-align:left"><h3>💶 ' + zuB.length + ' ' + T(zuB.length === 1 ? 'Nachnahme zu bestätigen' : 'Nachnahmen zu bestätigen', 'cash handover(s) to confirm') + ' ›</h3><p class="small" style="margin:0">' + zuB.slice(0, 4).map(n => esc(n.name) + ' ' + fmtEur(n.betrag)).join(' · ') + (zuB.length > 4 ? ' …' : '') + '</p></button>';
     const nnTile = b.nachnahmeEmpfaenger ? tile('nachnahmen', '💶', T('Nachnahmen', 'Cash on delivery'), zuB.length) : '';
-    if (locked) html += '<div class="menu">' + nnTile + tile('urlaub', '🏖️', T('Urlaub', 'Vacation')) + tile('protocols', '📋', A.t('myProtocols')) + tile('vehicles', '🚐', A.t('vehicles')) + soon('📅', T('Mein Dienstplan', 'My schedule')) + (canUps() ? soon('🧾', T('Meine Touren', 'My tours')) : '');
+    if (nurPark()) html += '<div class="menu">' + nnTile + tile('urlaub', '🏖️', T('Urlaub beantragen', 'Request vacation')) + tile('protocols', '📋', T('Meine Schadenmeldungen', 'My damage reports'));
+    else if (locked) html += '<div class="menu">' + nnTile + tile('urlaub', '🏖️', T('Urlaub', 'Vacation')) + tile('protocols', '📋', A.t('myProtocols')) + tile('vehicles', '🚐', A.t('vehicles')) + soon('📅', T('Mein Dienstplan', 'My schedule')) + (canUps() ? soon('🧾', T('Meine Touren', 'My tours')) : '');
     else html += '<div class="menu">' + nnTile + tile('heute', '📅', T('Mein Dienstplan', 'My schedule')) + tile('urlaub', '🏖️', T('Urlaub', 'Vacation')) + tile('protocols', '📋', A.t('myProtocols')) + tile('vehicles', '🚐', A.t('vehicles')) + (canUps() ? tile('tourberichte', '🧾', T('Meine Touren', 'My tours')) : '');
     if (mgmt()) {
       const offen = b.offeneAntraege || 0;
@@ -586,7 +591,7 @@
     if (b && b.gesperrt) { toast(T('Dieser Bereich kommt bald.', 'This area is coming soon.')); return go('home'); }
     return fn(arg);
   };
-  window.MOD = { home, routes: { heute: guard(viewHeute), tourstart: viewTourStart, kilometer: () => viewKilometer(false), tourende: viewTourEnd, nachnahmen: viewNachnahmen, tourberichte: guard(viewTourberichte), tagesbericht: viewTagesbericht, dienstplan: guard(viewDienstplan), urlaub: viewUrlaub, antraege: viewAntraege, abwesenheit: viewAbwesenheit, uebersicht: viewUebersicht, einstellungen: viewEinstellungen } };
+  window.MOD = { home, routes: { heute: nurParkGuard(guard(viewHeute)), tourstart: nurParkGuard(viewTourStart), kilometer: nurParkGuard(() => viewKilometer(false)), tourende: nurParkGuard(viewTourEnd), nachnahmen: viewNachnahmen, tourberichte: nurParkGuard(guard(viewTourberichte)), tagesbericht: viewTagesbericht, dienstplan: guard(viewDienstplan), urlaub: viewUrlaub, antraege: viewAntraege, abwesenheit: viewAbwesenheit, uebersicht: viewUebersicht, einstellungen: viewEinstellungen } };
   // Startseite neu zeichnen, falls bereits geladen
   if ((location.hash || '#home') === '#home' && state.user && document.readyState !== 'loading') home();
 })();
