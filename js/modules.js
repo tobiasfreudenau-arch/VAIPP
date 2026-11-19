@@ -475,7 +475,7 @@
     html += '<div class="row"><button class="btn small ghost" data-nav="urlaub/' + prevM + '">‹</button><div class="grow center"><b>' + MON[cal.monat - 1] + ' ' + cal.jahr + '</b></div><button class="btn small ghost" data-nav="urlaub/' + nextM + '">›</button></div>';
     const k = d.konto || {};
     html += '<div class="kpi mt"><div class="card"><div class="num">' + (k.gepflegt ? k.rest : '–') + '</div><div class="lbl">' + T('Resturlaub', 'Remaining') + ' ' + cal.jahr + '</div></div><div class="card"><div class="num">' + (k.genommen || 0) + '</div><div class="lbl">' + T('genehmigt', 'approved') + '</div></div><div class="card"><div class="num">' + (k.beantragt || 0) + '</div><div class="lbl">' + T('beantragt', 'requested') + '</div></div></div>';
-    if (d.dezSperre) html += '<div class="card danger mt"><b>' + T('Dezember: Urlaubssperre.', 'December: no vacation.') + '</b> ' + T('In diesem Monat sind keine Anträge möglich.', 'No requests possible this month.') + '</div>';
+    if (d.dezSperre) html += '<div class="card danger mt"><b>' + (d.sperreText ? esc(d.sperreText) : T('Dezember: Urlaubssperre.', 'December: no vacation.')) + '</b> ' + T('In diesem Monat sind keine Anträge möglich.', 'No requests possible this month.') + '</div>';
     // Kalender
     html += '<div class="card mt" style="padding:10px"><table class="cal"><tr>' + ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(w => '<th>' + w + '</th>').join('') + '<th class="kw">KW</th></tr>';
     let dayN = 1 - ((dow(first) + 6) % 7);
