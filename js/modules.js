@@ -15,6 +15,8 @@
   const today = () => ymd(new Date());
   const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return ymd(d); };
   const dow = s => new Date(s + 'T12:00:00').getDay();
+  // Krank/Kindkrank usw. sieht nur der Admin; alle anderen sehen nur Urlaub
+  const nurUrlaub = list => (A.isAdmin() ? (list || []) : (list || []).filter(e => e.typ ? e.typ === 'urlaub' : /urlaub/i.test(e.typText || '')));
   const fmtShort = s => { const d = new Date(s + 'T12:00:00'); return WD[d.getDay()] + ' ' + d.getDate() + '.' + (d.getMonth() + 1) + '.'; };
   const nowHM = () => new Date().toTimeString().slice(0, 5);
   const u = () => state.user || {};
@@ -26,6 +28,67 @@
   const nurPark = () => grp() === 'parkplatz' && !mgmt();
   const nurParkGuard = fn => (...a) => { if (nurPark()) { location.hash = '#home'; return; } return fn(...a); };
   const errMsg = e => (e && e.message) || 'Fehler';
+
+  /* ---------- Benachrichtigung: Protokoll bestätigen ----------
+   * Wenn jemand ein Protokoll erstellt hat und die andere Person (übergebend/übernehmend) nicht da war,
+   * muss diese es in der App bestätigen + unterschreiben. Dafür:
+   *  - Zahl am App-Symbol (Badge), solange etwas offen ist
+   *  - Handy-Benachrichtigung (wenn erlaubt), einmal je Protokoll
+   *  - Popup beim Öffnen der App
+   *  - alle 3 Minuten (und beim Zurückkehren in die App) leise nachschauen
+   * Zusätzlich schickt das Backend der Person eine E-Mail.
+   */
+  const NOTI = (function () {
+    const kann = () => 'Notification' in window && 'serviceWorker' in navigator;
+    const ls = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
+    const gezeigt = {}; // Popup je Protokoll nur einmal pro App-Start
+    let letzteZahl = null;
+    function zeigeFrage() {
+      if (!kann() || !state.user || Notification.permission !== 'default') return false;
+      const sp = Number(ls('vip_noti_spaeter') || 0);
+      return !sp || Date.now() - sp > 3 * 24 * 3600 * 1000;
+    }
+    function spaeter() { ls('vip_noti_spaeter', String(Date.now())); }
+    async function erlauben() { if (!kann()) return 'denied'; try { return await Notification.requestPermission(); } catch (e) { return 'denied'; } }
+    function badge(n) { try { if (navigator.setAppBadge) { if (n) navigator.setAppBadge(n); else if (navigator.clearAppBadge) navigator.clearAppBadge(); } } catch (e) { } }
+    async function melden(list, popup) {
+      list = list || []; badge(list.length); letzteZahl = list.length;
+      if (!list.length) return;
+      let seen = {}; try { seen = JSON.parse(ls('vip_noti_seen') || '{}') || {}; } catch (e) { }
+      const neu = list.filter(p => !seen[p.id]);
+      if (neu.length && kann() && Notification.permission === 'granted') {
+        try {
+          const reg = await navigator.serviceWorker.ready;
+          neu.forEach(p => reg.showNotification(T('Protokoll bestätigen', 'Confirm protocol') + ': ' + p.kennzeichen, {
+            body: p.nr + ' · ' + p.von + ' → ' + p.an + '\n' + T('Bitte prüfen und mit Unterschrift bestätigen.', 'Please check and confirm with your signature.'),
+            tag: 'vip-confirm-' + p.id, icon: 'img/icon-192.png', badge: 'img/icon-192.png', data: { url: '#protocol/' + p.id }
+          }));
+          neu.forEach(p => seen[p.id] = Date.now()); ls('vip_noti_seen', JSON.stringify(seen));
+        } catch (e) { }
+      }
+      const offen = list.filter(p => !gezeigt[p.id]);
+      if (popup && offen.length && onHome() && !document.querySelector('.sheet-bg')) {
+        offen.forEach(p => gezeigt[p.id] = true);
+        const s = sheet('<h2>✍️ ' + T('Protokoll bestätigen', 'Confirm protocol') + '</h2><p>' + T('Ein Übergabeprotokoll wartet auf deine Unterschrift. Bitte prüfe es (Fotos, Schäden, km) und bestätige es – oder widersprich, wenn etwas nicht stimmt.', 'A handover protocol is waiting for your signature. Please check it (photos, damages, km) and confirm it – or object if something is wrong.') + '</p>' +
+          list.map(p => '<button class="list-item" data-go="' + p.id + '"><div class="main"><b>' + esc(p.kennzeichen) + ' · ' + esc(p.nr) + '</b><span>' + fmtDT(p.datum) + ' · ' + esc(p.von) + ' → ' + esc(p.an) + (p.erstelltVon ? ' · ' + T('erstellt von', 'created by') + ' ' + esc(p.erstelltVon) : '') + '</span></div><div class="chev">›</div></button>').join(''));
+        $$('[data-go]', s.el).forEach(el => el.onclick = () => { s.close(); go('protocol/' + el.getAttribute('data-go')); });
+      }
+    }
+    async function pruefen() {
+      if (!state.user || !navigator.onLine || document.visibilityState === 'hidden') return;
+      try {
+        const list = await API.call('meineOffenen', {}, { timeout: 20000 });
+        const vorher = letzteZahl;
+        await melden(list, true);
+        if (state.boot) state.boot.offeneBestaetigungen = list;
+        if (vorher !== null && vorher !== list.length && onHome()) home();
+      } catch (e) { }
+    }
+    setInterval(pruefen, 3 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(pruefen, 800); });
+    if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.nav) location.hash = e.data.nav; });
+    return { zeigeFrage, spaeter, erlauben, melden, pruefen };
+  })();
   const pill = g => { const x = GRP[g] || GRP.ups; return '<span class="badge" style="background:' + x.col + ';color:' + x.txt + ';border-color:' + x.col + '">' + esc(x.de) + '</span>'; };
   const card = (title, inner, cls) => '<div class="card ' + (cls || '') + '">' + (title ? '<h3>' + esc(title) + '</h3>' : '') + inner + '</div>';
 
@@ -95,6 +158,7 @@
     if (mgmt() && b.km && b.km.warnungen) html += '<button class="card danger kmalert" data-nav="kilometer" style="display:block;width:100%;text-align:left"><h3>🛣️ ' + T('Kilometer', 'Mileage') + ': ' + b.km.warnungen + ' ' + T('Fahrzeug' + (b.km.warnungen === 1 ? '' : 'e') + ' kritisch', 'critical') + '</h3>' + b.km.fahrzeuge.map(k => '<div class="small">' + esc(k.kennzeichen) + ' – ' + fmtKm(k.gefahren) + ' / ' + fmtKm(k.limit) + ' km · ' + esc(k.statusText) + (k.prognose != null ? ' (' + T('Prognose', 'forecast') + ' ' + fmtKm(k.prognose) + ')' : '') + '</div>').join('') + (b.km.tausch ? '<div class="small mt"><b>🔁 ' + b.km.tausch + ' ' + T('Tauschvorschlag' + (b.km.tausch === 1 ? '' : 'e') + ' ansehen ›', 'swap suggestion(s) ›') + '</b></div>' : '') + '</button>';
     if (outbox.length) html += '<div class="card gold"><h2>' + A.t('pending') + ' (' + outbox.length + ')</h2><p class="small muted">' + A.t('pendingHint') + '</p></div>';
     if (draft) html += '<div class="card gold"><h2>' + A.t('draftFound') + '</h2><p class="small muted">' + esc(draft.kennzeichenAnzeige || '–') + ' · ' + A.t('step') + ' ' + (draft.step || 1) + '/8</p><div class="btn-row"><button class="btn" id="cont">' + A.t('continueDraft') + '</button><button class="btn ghost" id="disc">' + A.t('discardDraft') + '</button></div></div>';
+    if (NOTI.zeigeFrage()) html += '<div class="card gold" id="noti-card"><h3>🔔 ' + T('Benachrichtigungen einschalten', 'Turn on notifications') + '</h3><p class="small" style="margin:0 0 8px">' + T('Dann meldet sich dein Handy, wenn du ein Übergabeprotokoll bestätigen und unterschreiben musst.', 'Your phone will tell you when you have to confirm and sign a handover protocol.') + '</p><div class="btn-row"><button class="btn small" id="noti-ja">' + T('Einschalten', 'Turn on') + '</button><button class="btn small ghost" id="noti-nein">' + T('Später', 'Later') + '</button></div></div>';
     (b.offeneBestaetigungen || []).forEach(p => { html += '<div class="card danger"><h2>' + A.t('toConfirm') + '</h2><button class="list-item" data-nav="protocol/' + p.id + '"><div class="main"><b>' + esc(p.kennzeichen) + ' · ' + esc(p.nr) + '</b><span>' + fmtDT(p.datum) + ' · ' + esc(p.von) + ' → ' + esc(p.an) + '</span></div><div class="chev">›</div></button></div>'; });
     if (nurPark()) html += '<button class="btn big" id="new">⚠️ ' + T('Schaden melden', 'Report damage') + '</button><p class="small muted center" style="margin:6px 0 0">' + T('Schaden am Fahrzeug? Fahrzeug wählen, Fotos machen, Schaden antippen.', 'Damage on a vehicle? Choose vehicle, take photos, tap the damage.') + '</p><div class="gold-line"></div>';
     else html += '<button class="btn big" id="new">＋ ' + A.t('newProtocol') + '</button><div class="gold-line"></div>';
@@ -115,6 +179,8 @@
     html += '</div></main>';
     render(html);
     $$('.tile.soon').forEach(el => el.onclick = () => toast(T('Dieser Bereich kommt bald.', 'This area is coming soon.')));
+    if ($('#noti-ja')) { $('#noti-ja').onclick = async () => { await NOTI.erlauben(); NOTI.melden(b.offeneBestaetigungen, true); home(); }; $('#noti-nein').onclick = () => { NOTI.spaeter(); const c = $('#noti-card'); if (c) c.remove(); }; }
+    if (!stale) NOTI.melden(b.offeneBestaetigungen, true);
     $('#new').onclick = async () => { if (draft) { if (!(await confirmDlg(A.t('reallyDiscard')))) return; await A.discardDraft(draft.clientId); } A.startDraft(); };
     if (draft) { $('#cont').onclick = () => { state.draft = draft; go('new'); }; $('#disc').onclick = async () => { if (await confirmDlg(A.t('reallyDiscard'))) { await A.discardDraft(draft.clientId); home(); } }; }
   }
@@ -127,7 +193,7 @@
     let d; try { d = await API.call('dienstplan', { von: start, bis: addDays(start, 6) }); } catch (e) { return render(topbar('Dienstplan', { back: 'home' }) + '<main><div class="card danger">' + esc(errMsg(e)) + '</div></main>'); }
     let html = topbar(T('Mein Dienstplan', 'My schedule'), { back: 'home' }) + '<main><div class="row"><button class="btn small ghost" id="prev">‹</button><div class="grow center"><b>KW ' + isoWeek(start) + '</b><div class="small muted">' + fmtD(start) + ' – ' + fmtD(addDays(start, 6)) + '</div></div><button class="btn small ghost" id="next">›</button></div>';
     for (let i = 0; i < 7; i++) {
-      const day = addDays(start, i); const mine = d.plan.filter(p => p.datum === day); const abw = (d.abwesenheiten || []).filter(a => a.userId === u().id && a.von <= day && a.bis >= day)[0];
+      const day = addDays(start, i); const mine = d.plan.filter(p => p.datum === day); const abw = nurUrlaub(d.abwesenheiten).filter(a => a.userId === u().id && a.von <= day && a.bis >= day)[0];
       const isToday = day === today();
       let txt = '';
       if (abw) txt = '<span class="badge red">' + esc(abw.typText) + '</span>';
@@ -170,15 +236,18 @@
   };
   const kmFoto = (s, id) => '<div class="row" style="gap:12px;align-items:stretch"><div class="photo-tile' + (s.fotoId ? ' done' : ' req') + '" id="' + id + '-foto" style="width:120px;min-height:110px;flex:none">' +
     (s.fotoUrl ? '<img src="' + s.fotoUrl + '"><span class="redo">' + A.t('retake') + '</span>' : '<span class="ico">📷</span>') + '<div class="cap">' + T('Tacho-Foto', 'Odometer photo') + '</div></div>' +
-    '<div class="grow small" style="align-self:center">' + (s.ocrLaeuft ? '⏳ ' + T('Kilometerstand wird vom Foto gelesen …', 'Reading the odometer from the photo …') : s.ocr ? '📷 ' + T('Vom Foto erkannt', 'Read from photo') + ': <b>' + fmtKm(s.ocr) + ' km</b>' : s.fotoId ? T('Zahl nicht erkannt – bitte genau abtippen.', 'Not detected – please type it exactly.') : '<b>' + T('Pflicht:', 'Required:') + '</b> ' + T('Tacho fotografieren – die Zahl wird dann automatisch gelesen.', 'Photograph the odometer – the number is read automatically.')) + '</div></div>' +
+    '<div class="grow small" style="align-self:center">' + (s.ocrLaeuft ? '⏳ ' + T('Kilometerstand wird vom Foto gelesen …', 'Reading the odometer from the photo …') : s.ocr ? (s.ocrOk === true ? '✓ ' + T('Vom Foto übernommen', 'Taken from photo') + ': <b>' + fmtKm(s.ocr) + ' km</b>' : s.ocrOk === false ? T('Vorschlag verworfen – bitte den Kilometerstand von Hand eintragen.', 'Suggestion rejected – please type the reading.') : '📷 ' + T('Vorschlag vom Foto', 'Suggestion from photo') + ': <b>' + fmtKm(s.ocr) + ' km</b> – ' + T('stimmt das mit dem Kilometerzähler überein?', 'does it match the odometer?') + '<div class="chips two mt" style="gap:6px"><button type="button" class="chip" id="' + id + '-ocr-ja" style="min-height:40px">✓ ' + T('Ja, übernehmen', 'Yes, use it') + '</button><button type="button" class="chip" id="' + id + '-ocr-nein" style="min-height:40px">✗ ' + T('Nein, selbst eingeben', 'No, type it') + '</button></div>') : s.fotoId ? T('Zahl nicht erkannt – bitte genau abtippen.', 'Not detected – please type it exactly.') : '<b>' + T('Pflicht:', 'Required:') + '</b> ' + T('Tacho fotografieren – die Zahl wird dann automatisch gelesen.', 'Photograph the odometer – the number is read automatically.')) + '</div></div>' +
     '<input type="number" inputmode="numeric" class="huge mt" id="' + id + '-km" value="' + esc(s.km || '') + '" placeholder="' + T('Kilometerstand (exakt vom Tacho)', 'Odometer (exact)') + '">';
   const bindKmFoto = (s, id, fzId, redraw) => {
     const inp = $('#' + id + '-km'); if (inp) inp.oninput = () => { s.km = inp.value.replace(/[^\d]/g, ''); s.manuell = true; };
+    // Vorschlag aus dem Foto: der Fahrer entscheidet, ob er stimmt
+    const oj = $('#' + id + '-ocr-ja'); if (oj) oj.onclick = () => { s.km = String(s.ocr); s.ocrOk = true; s.manuell = false; redraw(); };
+    const on = $('#' + id + '-ocr-nein'); if (on) on.onclick = () => { s.ocrOk = false; s.km = ''; redraw(); setTimeout(() => { const i = $('#' + id + '-km'); if (i) i.focus(); }, 50); };
     const tile = $('#' + id + '-foto'); if (!tile) return;
     tile.onclick = async () => {
       const r = await photoUpload('tacho'); if (!r) return;
       s.fotoId = r.photoId; s.fotoUrl = r.url; s.ocr = null; s.ocrLaeuft = true; redraw();
-      try { const o = await API.call('kmOcr', { fotoId: r.photoId, fahrzeugId: fzId() || '' }, { timeout: 60000 }); s.ocr = o.km || null; if (o.km && (!s.km || !s.manuell)) s.km = String(o.km); } catch (e) { }
+      try { const o = await API.call('kmOcr', { fotoId: r.photoId, fahrzeugId: fzId() || '' }, { timeout: 60000 }); s.ocr = o.km || null; s.ocrOk = null; } catch (e) { }
       s.ocrLaeuft = false; redraw();
     };
   };
@@ -186,7 +255,7 @@
     if (!s.fotoId) { toast(T('Bitte den Tacho fotografieren (Pflicht)', 'Please photograph the odometer (required)'), true); return false; }
     if (s.ocrLaeuft) { toast(T('Einen Moment – das Foto wird noch gelesen', 'One moment – still reading the photo'), true); return false; }
     if (!s.km || Number(s.km) <= 0) { toast(T('Bitte den Kilometerstand eintragen', 'Enter the odometer reading'), true); return false; }
-    if (s.ocr && Math.abs(Number(s.ocr) - Number(s.km)) > 2) return confirmDlg(T('Auf dem Foto steht ', 'The photo shows ') + fmtKm(s.ocr) + ' km, ' + T('eingetragen ist ', 'you entered ') + fmtKm(s.km) + ' km.\n\n' + T('Ist deine Zahl wirklich exakt richtig? Abweichungen werden gemeldet.', 'Is your number really exact? Differences are reported.'));
+    if (s.ocr && s.ocrOk !== false && Math.abs(Number(s.ocr) - Number(s.km)) > 2) return confirmDlg(T('Auf dem Foto steht ', 'The photo shows ') + fmtKm(s.ocr) + ' km, ' + T('eingetragen ist ', 'you entered ') + fmtKm(s.km) + ' km.\n\n' + T('Ist deine Zahl wirklich exakt richtig? Abweichungen werden gemeldet.', 'Is your number really exact? Differences are reported.'));
     return true;
   };
   // Hinweis für Fahrer: Geld übergeben – der Empfänger bestätigt in SEINER App
@@ -359,7 +428,7 @@
       html += card(T('Stopps & Nachnahme (Pflicht)', 'Stops & cash (required)'), '<div class="row"><div class="grow"><label class="lbl">' + T('Anzahl Stopps', 'Number of stops') + '</label><input type="number" inputmode="numeric" data-f="stopps" value="' + esc(f.stopps) + '"></div><div class="grow"><label class="lbl">' + T('Nachnahme (€)', 'Cash on delivery (€)') + '</label><input type="text" inputmode="decimal" data-f="nachnahme" value="' + esc(f.nachnahme) + '" placeholder="0,00"></div></div>' +
         '<button type="button" class="chip mt' + (f.nachnahme === '0' ? ' on' : '') + '" id="nn0" style="width:100%">' + T('Keine Nachnahme heute (0 €)', 'No cash today (0 €)') + '</button>' +
         (Number(String(f.nachnahme).replace(',', '.')) > 0 ? nnHinweis() : ''));
-      html += card(T('Abschluss (Pflicht)', 'Wrap-up (required)'), ynq(f, 'fahrtenbuch', T('Fahrtenbuch ausgefüllt?', 'Logbook filled in?')) +
+      html += card(T('Abschluss (Pflicht)', 'Wrap-up (required)'), ynq(f, 'fahrtenbuch', T('Fahrtenbuch ausgefüllt?', 'Logbook filled in?')) + ynq(f, 'sauber', T('Fahrzeug sauber / Müll entfernt?', 'Vehicle clean / rubbish removed?')) +
         ynq(f, 'neueSchaeden', T('Neue Schäden?', 'New damage?'), { redJa: true, whyJa: T('Was ist passiert? (optional)', 'What happened? (optional)'), hint: '⚠️ ' + T('Freiwillig gemeldete Schäden: nur die Selbstbeteiligung der Versicherung. Schäden, die erst durch unsere Auswertung festgestellt werden: 100 € Strafaufschlag und Abmahnung.', 'Damage reported voluntarily: only the insurance deductible. Damage found later by our checks: €100 penalty and a formal warning.') }));
       html += card('', '<label class="lbl">' + A.t('remark') + '</label><textarea data-f="bemerkung">' + esc(f.bemerkung) + '</textarea>');
       html += '<button class="btn" id="ok">■ ' + T('Tour beenden & melden', 'End tour & report') + '</button></main>';
@@ -376,10 +445,10 @@
       if (f.stopps === '' || isNaN(Number(f.stopps))) return toast(T('Bitte die Anzahl der Stopps eintragen', 'Enter the number of stops'), true);
       const betrag = Number(String(f.nachnahme).replace(',', '.'));
       if (f.nachnahme === '' || isNaN(betrag) || betrag < 0) return toast(T('Bitte den Nachnahmebetrag eintragen (0, wenn keine)', 'Enter the cash amount (0 if none)'), true);
-      if (!f.fahrtenbuch || !f.neueSchaeden) return toast(T('Bitte alle Ja/Nein-Fragen beantworten', 'Please answer all yes/no questions'), true);
+      if (!f.fahrtenbuch || !f.sauber || !f.neueSchaeden) return toast(T('Bitte alle Ja/Nein-Fragen beantworten', 'Please answer all yes/no questions'), true);
       const v = fz || (b.fahrzeuge || []).find(x => norm(x.kennzeichen) === norm(f.kz));
       const payload = { tour: f.tour, kennzeichen: f.kz, fahrzeugId: v ? v.id : '', kmEnde: Number(km.km), kmFotoId: km.fotoId, stopps: Number(f.stopps), nachnahme: betrag,
-        fahrtenbuch: f.fahrtenbuch, fahrtenbuchGrund: f.fahrtenbuchGrund || '', neueSchaeden: f.neueSchaeden, schadenGrund: f.neueSchaedenGrund || '', bemerkung: f.bemerkung };
+        fahrtenbuch: f.fahrtenbuch, fahrtenbuchGrund: f.fahrtenbuchGrund || '', sauber: f.sauber, sauberGrund: f.sauberGrund || '', neueSchaeden: f.neueSchaeden, schadenGrund: f.neueSchaedenGrund || '', bemerkung: f.bemerkung };
       const senden = async extra => {
         overlay('…');
         try {
@@ -456,7 +525,8 @@
     let html = topbar('Dienstplan', { back: 'home' }) + '<main><div class="day-switch"><button class="chip ' + (datum === today() ? 'on' : '') + '" data-nav="dienstplan/' + today() + '">' + T('Heute', 'Today') + '</button><button class="chip ' + (datum === addDays(today(), 1) ? 'on' : '') + '" data-nav="dienstplan/' + addDays(today(), 1) + '">' + T('Morgen', 'Tomorrow') + '</button></div><div class="row"><button class="btn small ghost" data-nav="dienstplan/' + addDays(datum, -1) + '">‹</button><div class="grow center"><b>' + fmtShort(datum) + '</b></div><button class="btn small ghost" data-nav="dienstplan/' + addDays(datum, 1) + '">›</button></div>';
     html += card('UPS (' + tours.length + ')', tours.map(p => '<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="badge">' + esc(p.tour || p.code) + '</span><b class="grow">' + esc(p.name) + (p.userId ? '' : ' <span class="danger small">(nicht zugeordnet)</span>') + '</b><span class="small muted">' + esc(p.kennzeichen || '') + ' ' + esc(p.start || '') + '</span></div>').join('') || '<p class="muted small">' + T('Keine DPL-Datei für diesen Tag.', 'No DPL file for this day.') + '</p>', 'mt');
     if (park.length) html += card('Parkplatz', park.map(p => '<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><b class="grow">' + esc(p.name) + '</b><span class="badge grey">' + esc(STATUS_TXT[p.status] || p.code) + (p.start ? ' ' + esc(p.start) : '') + '</span></div>').join(''));
-    if (d.abwesenheiten.length) html += card(T('Abwesend', 'Absent'), d.abwesenheiten.map(a => '<div class="row" style="padding:4px 0"><b class="grow">' + esc(a.name) + '</b>' + pill(a.gruppe) + '<span class="badge red">' + esc(a.typText) + '</span></div>').join(''));
+    const abwListe = nurUrlaub(d.abwesenheiten);
+    if (abwListe.length) html += card(T('Abwesend', 'Absent'), abwListe.map(a => '<div class="row" style="padding:4px 0"><b class="grow">' + esc(a.name) + '</b>' + pill(a.gruppe) + '<span class="badge red">' + esc(a.typText) + '</span></div>').join(''));
     render(html + '</main>');
   }
 
@@ -469,7 +539,7 @@
     const isM = mgmt();
     const first = cal.jahr + '-' + String(cal.monat).padStart(2, '0') + '-01'; const days = new Date(cal.jahr, cal.monat, 0).getDate();
     const prevM = cal.monat === 1 ? (cal.jahr - 1) + '-12' : cal.jahr + '-' + (cal.monat - 1), nextM = cal.monat === 12 ? (cal.jahr + 1) + '-1' : cal.jahr + '-' + (cal.monat + 1);
-    const byDay = {}; (d.eintraege || []).forEach(e => { let x = e.von; while (x <= e.bis) { (byDay[x] = byDay[x] || []).push(e); x = addDays(x, 1); } });
+    const byDay = {}; nurUrlaub(d.eintraege).forEach(e => { let x = e.von; while (x <= e.bis) { (byDay[x] = byDay[x] || []).push(e); x = addDays(x, 1); } });
     const weekOf = day => { const monday = addDays(day, -((dow(day) + 6) % 7)); return Object.keys(d.wochen || {}).map(k => d.wochen[k]).find(w => w.montag === monday); };
     let html = topbar(T('Urlaub', 'Vacation'), { back: 'home' }) + '<main>';
     html += '<div class="row"><button class="btn small ghost" data-nav="urlaub/' + prevM + '">‹</button><div class="grow center"><b>' + MON[cal.monat - 1] + ' ' + cal.jahr + '</b></div><button class="btn small ghost" data-nav="urlaub/' + nextM + '">›</button></div>';
@@ -493,14 +563,17 @@
         else if (mine.length) dots = '<i style="background:' + (mine[0].status === 'beantragt' ? 'var(--warn)' : mine[0].typ === 'urlaub' ? 'var(--gold)' : 'var(--danger)') + '"></i>';
         html += '<td class="' + cls + '" data-day="' + day + '"><span>' + dayN + '</span><div class="dots">' + dots + '</div></td>';
       }
-      const w = weekDay ? weekOf(weekDay) : null;
+      // Dezember-Urlaube sieht nur Admin/Management: für Mitarbeiter keine Belegung in Wochen, die den Dezember berühren
+      const wMon = weekDay ? addDays(weekDay, -((dow(weekDay) + 6) % 7)) : null;
+      const dezWoche = wMon && (wMon.slice(5, 7) === '12' || addDays(wMon, 6).slice(5, 7) === '12');
+      const w = weekDay && (isM || !dezWoche) ? weekOf(weekDay) : null;
       html += '<td class="kw">' + (weekDay ? isoWeek(weekDay) : '') + (w && !d.dezSperre ? '<div class="occ ' + (w.max && w.anzahl >= w.max ? 'full' : '') + '">' + w.anzahl + (w.max ? '/' + w.max : '') + '</div>' : '') + '</td></tr>';
     }
     html += '</table><div class="legend">' + (isM ? Object.keys(GRP).map(g => '<span><i style="background:' + GRP[g].col + '"></i>' + GRP[g].de + '</span>').join('') : '<span><i style="background:var(--gold)"></i>' + T('mein Urlaub', 'my vacation') + '</span><span><i style="background:var(--warn)"></i>' + T('beantragt', 'requested') + '</span><span><i style="background:var(--danger)"></i>' + T('andere Abwesenheit', 'other absence') + '</span>') + '<span><i style="background:transparent;border:1px solid var(--danger)"></i>' + T('gesperrt', 'blocked') + '</span>' + (!isM && !d.dezSperre ? '<span class="muted">KW-Spalte: ' + T('belegt / maximal', 'used / max') + '</span>' : '') + '</div></div>';
     if (!d.dezSperre) html += '<p class="small muted">' + (cal.selStart && !cal.selEnd ? T('Jetzt den letzten Urlaubstag antippen.', 'Now tap the last day.') : T('Ersten Urlaubstag antippen, dann den letzten.', 'Tap first day, then last day.')) + '</p>';
     if (cal.selStart && cal.selEnd) html += '<div class="card gold"><b>' + fmtD(cal.selStart) + ' – ' + fmtD(cal.selEnd) + '</b><label class="lbl">' + T('Bemerkung (optional)', 'Note (optional)') + '</label><input type="text" id="u-k"><div class="btn-row mt"><button class="btn" id="u-req">' + T('Urlaub beantragen', 'Request vacation') + '</button><button class="btn ghost" id="u-x">✕</button></div></div>';
     // Meine Einträge
-    const meine = (d.meine || []).sort((a, c) => a.von.localeCompare(c.von));
+    const meine = nurUrlaub(d.meine).sort((a, c) => a.von.localeCompare(c.von));
     if (meine.length) html += card(T('Meine Einträge', 'My entries'), meine.map(e => '<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><div class="grow"><b>' + esc(e.typText) + '</b> ' + fmtD(e.von) + ' – ' + fmtD(e.bis) + ' <span class="muted small">(' + e.tage + ' Tg.)</span>' + (e.kommentarAdmin ? '<div class="small muted">' + esc(e.kommentarAdmin) + '</div>' : '') + '</div><span class="badge ' + (e.status === 'genehmigt' ? 'green' : e.status === 'beantragt' ? '' : 'red') + '">' + esc(e.status) + '</span>' + (e.typ === 'urlaub' && e.von >= today() && (e.status === 'beantragt' || e.status === 'genehmigt') ? '<button class="btn small ghost" data-cancel="' + e.id + '">✕</button>' : '') + '</div>').join(''));
     if (isM) html += '<div class="btn-row"><button class="btn secondary" data-nav="abwesenheit">＋ ' + T('Eintragen', 'Enter') + '</button><button class="btn ghost" data-nav="antraege">' + T('Anträge', 'Requests') + '</button></div>';
     html += '</main>';
