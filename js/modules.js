@@ -15,6 +15,8 @@
   const today = () => ymd(new Date());
   const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return ymd(d); };
   const dow = s => new Date(s + 'T12:00:00').getDay();
+  // Krank/Kindkrank usw. sieht nur der Admin; alle anderen sehen nur Urlaub
+  const nurUrlaub = list => (A.isAdmin() ? (list || []) : (list || []).filter(e => e.typ ? e.typ === 'urlaub' : /urlaub/i.test(e.typText || '')));
   const fmtShort = s => { const d = new Date(s + 'T12:00:00'); return WD[d.getDay()] + ' ' + d.getDate() + '.' + (d.getMonth() + 1) + '.'; };
   const nowHM = () => new Date().toTimeString().slice(0, 5);
   const u = () => state.user || {};
@@ -127,7 +129,7 @@
     let d; try { d = await API.call('dienstplan', { von: start, bis: addDays(start, 6) }); } catch (e) { return render(topbar('Dienstplan', { back: 'home' }) + '<main><div class="card danger">' + esc(errMsg(e)) + '</div></main>'); }
     let html = topbar(T('Mein Dienstplan', 'My schedule'), { back: 'home' }) + '<main><div class="row"><button class="btn small ghost" id="prev">‹</button><div class="grow center"><b>KW ' + isoWeek(start) + '</b><div class="small muted">' + fmtD(start) + ' – ' + fmtD(addDays(start, 6)) + '</div></div><button class="btn small ghost" id="next">›</button></div>';
     for (let i = 0; i < 7; i++) {
-      const day = addDays(start, i); const mine = d.plan.filter(p => p.datum === day); const abw = (d.abwesenheiten || []).filter(a => a.userId === u().id && a.von <= day && a.bis >= day)[0];
+      const day = addDays(start, i); const mine = d.plan.filter(p => p.datum === day); const abw = nurUrlaub(d.abwesenheiten).filter(a => a.userId === u().id && a.von <= day && a.bis >= day)[0];
       const isToday = day === today();
       let txt = '';
       if (abw) txt = '<span class="badge red">' + esc(abw.typText) + '</span>';
@@ -456,7 +458,8 @@
     let html = topbar('Dienstplan', { back: 'home' }) + '<main><div class="day-switch"><button class="chip ' + (datum === today() ? 'on' : '') + '" data-nav="dienstplan/' + today() + '">' + T('Heute', 'Today') + '</button><button class="chip ' + (datum === addDays(today(), 1) ? 'on' : '') + '" data-nav="dienstplan/' + addDays(today(), 1) + '">' + T('Morgen', 'Tomorrow') + '</button></div><div class="row"><button class="btn small ghost" data-nav="dienstplan/' + addDays(datum, -1) + '">‹</button><div class="grow center"><b>' + fmtShort(datum) + '</b></div><button class="btn small ghost" data-nav="dienstplan/' + addDays(datum, 1) + '">›</button></div>';
     html += card('UPS (' + tours.length + ')', tours.map(p => '<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="badge">' + esc(p.tour || p.code) + '</span><b class="grow">' + esc(p.name) + (p.userId ? '' : ' <span class="danger small">(nicht zugeordnet)</span>') + '</b><span class="small muted">' + esc(p.kennzeichen || '') + ' ' + esc(p.start || '') + '</span></div>').join('') || '<p class="muted small">' + T('Keine DPL-Datei für diesen Tag.', 'No DPL file for this day.') + '</p>', 'mt');
     if (park.length) html += card('Parkplatz', park.map(p => '<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><b class="grow">' + esc(p.name) + '</b><span class="badge grey">' + esc(STATUS_TXT[p.status] || p.code) + (p.start ? ' ' + esc(p.start) : '') + '</span></div>').join(''));
-    if (d.abwesenheiten.length) html += card(T('Abwesend', 'Absent'), d.abwesenheiten.map(a => '<div class="row" style="padding:4px 0"><b class="grow">' + esc(a.name) + '</b>' + pill(a.gruppe) + '<span class="badge red">' + esc(a.typText) + '</span></div>').join(''));
+    const abwListe = nurUrlaub(d.abwesenheiten);
+    if (abwListe.length) html += card(T('Abwesend', 'Absent'), abwListe.map(a => '<div class="row" style="padding:4px 0"><b class="grow">' + esc(a.name) + '</b>' + pill(a.gruppe) + '<span class="badge red">' + esc(a.typText) + '</span></div>').join(''));
     render(html + '</main>');
   }
 
@@ -469,7 +472,7 @@
     const isM = mgmt();
     const first = cal.jahr + '-' + String(cal.monat).padStart(2, '0') + '-01'; const days = new Date(cal.jahr, cal.monat, 0).getDate();
     const prevM = cal.monat === 1 ? (cal.jahr - 1) + '-12' : cal.jahr + '-' + (cal.monat - 1), nextM = cal.monat === 12 ? (cal.jahr + 1) + '-1' : cal.jahr + '-' + (cal.monat + 1);
-    const byDay = {}; (d.eintraege || []).forEach(e => { let x = e.von; while (x <= e.bis) { (byDay[x] = byDay[x] || []).push(e); x = addDays(x, 1); } });
+    const byDay = {}; nurUrlaub(d.eintraege).forEach(e => { let x = e.von; while (x <= e.bis) { (byDay[x] = byDay[x] || []).push(e); x = addDays(x, 1); } });
     const weekOf = day => { const monday = addDays(day, -((dow(day) + 6) % 7)); return Object.keys(d.wochen || {}).map(k => d.wochen[k]).find(w => w.montag === monday); };
     let html = topbar(T('Urlaub', 'Vacation'), { back: 'home' }) + '<main>';
     html += '<div class="row"><button class="btn small ghost" data-nav="urlaub/' + prevM + '">‹</button><div class="grow center"><b>' + MON[cal.monat - 1] + ' ' + cal.jahr + '</b></div><button class="btn small ghost" data-nav="urlaub/' + nextM + '">›</button></div>';
@@ -493,14 +496,17 @@
         else if (mine.length) dots = '<i style="background:' + (mine[0].status === 'beantragt' ? 'var(--warn)' : mine[0].typ === 'urlaub' ? 'var(--gold)' : 'var(--danger)') + '"></i>';
         html += '<td class="' + cls + '" data-day="' + day + '"><span>' + dayN + '</span><div class="dots">' + dots + '</div></td>';
       }
-      const w = weekDay ? weekOf(weekDay) : null;
+      // Dezember-Urlaube sieht nur Admin/Management: für Mitarbeiter keine Belegung in Wochen, die den Dezember berühren
+      const wMon = weekDay ? addDays(weekDay, -((dow(weekDay) + 6) % 7)) : null;
+      const dezWoche = wMon && (wMon.slice(5, 7) === '12' || addDays(wMon, 6).slice(5, 7) === '12');
+      const w = weekDay && (isM || !dezWoche) ? weekOf(weekDay) : null;
       html += '<td class="kw">' + (weekDay ? isoWeek(weekDay) : '') + (w && !d.dezSperre ? '<div class="occ ' + (w.max && w.anzahl >= w.max ? 'full' : '') + '">' + w.anzahl + (w.max ? '/' + w.max : '') + '</div>' : '') + '</td></tr>';
     }
     html += '</table><div class="legend">' + (isM ? Object.keys(GRP).map(g => '<span><i style="background:' + GRP[g].col + '"></i>' + GRP[g].de + '</span>').join('') : '<span><i style="background:var(--gold)"></i>' + T('mein Urlaub', 'my vacation') + '</span><span><i style="background:var(--warn)"></i>' + T('beantragt', 'requested') + '</span><span><i style="background:var(--danger)"></i>' + T('andere Abwesenheit', 'other absence') + '</span>') + '<span><i style="background:transparent;border:1px solid var(--danger)"></i>' + T('gesperrt', 'blocked') + '</span>' + (!isM && !d.dezSperre ? '<span class="muted">KW-Spalte: ' + T('belegt / maximal', 'used / max') + '</span>' : '') + '</div></div>';
     if (!d.dezSperre) html += '<p class="small muted">' + (cal.selStart && !cal.selEnd ? T('Jetzt den letzten Urlaubstag antippen.', 'Now tap the last day.') : T('Ersten Urlaubstag antippen, dann den letzten.', 'Tap first day, then last day.')) + '</p>';
     if (cal.selStart && cal.selEnd) html += '<div class="card gold"><b>' + fmtD(cal.selStart) + ' – ' + fmtD(cal.selEnd) + '</b><label class="lbl">' + T('Bemerkung (optional)', 'Note (optional)') + '</label><input type="text" id="u-k"><div class="btn-row mt"><button class="btn" id="u-req">' + T('Urlaub beantragen', 'Request vacation') + '</button><button class="btn ghost" id="u-x">✕</button></div></div>';
     // Meine Einträge
-    const meine = (d.meine || []).sort((a, c) => a.von.localeCompare(c.von));
+    const meine = nurUrlaub(d.meine).sort((a, c) => a.von.localeCompare(c.von));
     if (meine.length) html += card(T('Meine Einträge', 'My entries'), meine.map(e => '<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><div class="grow"><b>' + esc(e.typText) + '</b> ' + fmtD(e.von) + ' – ' + fmtD(e.bis) + ' <span class="muted small">(' + e.tage + ' Tg.)</span>' + (e.kommentarAdmin ? '<div class="small muted">' + esc(e.kommentarAdmin) + '</div>' : '') + '</div><span class="badge ' + (e.status === 'genehmigt' ? 'green' : e.status === 'beantragt' ? '' : 'red') + '">' + esc(e.status) + '</span>' + (e.typ === 'urlaub' && e.von >= today() && (e.status === 'beantragt' || e.status === 'genehmigt') ? '<button class="btn small ghost" data-cancel="' + e.id + '">✕</button>' : '') + '</div>').join(''));
     if (isM) html += '<div class="btn-row"><button class="btn secondary" data-nav="abwesenheit">＋ ' + T('Eintragen', 'Enter') + '</button><button class="btn ghost" data-nav="antraege">' + T('Anträge', 'Requests') + '</button></div>';
     html += '</main>';
