@@ -172,15 +172,18 @@
   };
   const kmFoto = (s, id) => '<div class="row" style="gap:12px;align-items:stretch"><div class="photo-tile' + (s.fotoId ? ' done' : ' req') + '" id="' + id + '-foto" style="width:120px;min-height:110px;flex:none">' +
     (s.fotoUrl ? '<img src="' + s.fotoUrl + '"><span class="redo">' + A.t('retake') + '</span>' : '<span class="ico">📷</span>') + '<div class="cap">' + T('Tacho-Foto', 'Odometer photo') + '</div></div>' +
-    '<div class="grow small" style="align-self:center">' + (s.ocrLaeuft ? '⏳ ' + T('Kilometerstand wird vom Foto gelesen …', 'Reading the odometer from the photo …') : s.ocr ? '📷 ' + T('Vom Foto erkannt', 'Read from photo') + ': <b>' + fmtKm(s.ocr) + ' km</b>' : s.fotoId ? T('Zahl nicht erkannt – bitte genau abtippen.', 'Not detected – please type it exactly.') : '<b>' + T('Pflicht:', 'Required:') + '</b> ' + T('Tacho fotografieren – die Zahl wird dann automatisch gelesen.', 'Photograph the odometer – the number is read automatically.')) + '</div></div>' +
+    '<div class="grow small" style="align-self:center">' + (s.ocrLaeuft ? '⏳ ' + T('Kilometerstand wird vom Foto gelesen …', 'Reading the odometer from the photo …') : s.ocr ? (s.ocrOk === true ? '✓ ' + T('Vom Foto übernommen', 'Taken from photo') + ': <b>' + fmtKm(s.ocr) + ' km</b>' : s.ocrOk === false ? T('Vorschlag verworfen – bitte den Kilometerstand von Hand eintragen.', 'Suggestion rejected – please type the reading.') : '📷 ' + T('Vorschlag vom Foto', 'Suggestion from photo') + ': <b>' + fmtKm(s.ocr) + ' km</b> – ' + T('stimmt das mit dem Kilometerzähler überein?', 'does it match the odometer?') + '<div class="chips two mt" style="gap:6px"><button type="button" class="chip" id="' + id + '-ocr-ja" style="min-height:40px">✓ ' + T('Ja, übernehmen', 'Yes, use it') + '</button><button type="button" class="chip" id="' + id + '-ocr-nein" style="min-height:40px">✗ ' + T('Nein, selbst eingeben', 'No, type it') + '</button></div>') : s.fotoId ? T('Zahl nicht erkannt – bitte genau abtippen.', 'Not detected – please type it exactly.') : '<b>' + T('Pflicht:', 'Required:') + '</b> ' + T('Tacho fotografieren – die Zahl wird dann automatisch gelesen.', 'Photograph the odometer – the number is read automatically.')) + '</div></div>' +
     '<input type="number" inputmode="numeric" class="huge mt" id="' + id + '-km" value="' + esc(s.km || '') + '" placeholder="' + T('Kilometerstand (exakt vom Tacho)', 'Odometer (exact)') + '">';
   const bindKmFoto = (s, id, fzId, redraw) => {
     const inp = $('#' + id + '-km'); if (inp) inp.oninput = () => { s.km = inp.value.replace(/[^\d]/g, ''); s.manuell = true; };
+    // Vorschlag aus dem Foto: der Fahrer entscheidet, ob er stimmt
+    const oj = $('#' + id + '-ocr-ja'); if (oj) oj.onclick = () => { s.km = String(s.ocr); s.ocrOk = true; s.manuell = false; redraw(); };
+    const on = $('#' + id + '-ocr-nein'); if (on) on.onclick = () => { s.ocrOk = false; s.km = ''; redraw(); setTimeout(() => { const i = $('#' + id + '-km'); if (i) i.focus(); }, 50); };
     const tile = $('#' + id + '-foto'); if (!tile) return;
     tile.onclick = async () => {
       const r = await photoUpload('tacho'); if (!r) return;
       s.fotoId = r.photoId; s.fotoUrl = r.url; s.ocr = null; s.ocrLaeuft = true; redraw();
-      try { const o = await API.call('kmOcr', { fotoId: r.photoId, fahrzeugId: fzId() || '' }, { timeout: 60000 }); s.ocr = o.km || null; if (o.km && (!s.km || !s.manuell)) s.km = String(o.km); } catch (e) { }
+      try { const o = await API.call('kmOcr', { fotoId: r.photoId, fahrzeugId: fzId() || '' }, { timeout: 60000 }); s.ocr = o.km || null; s.ocrOk = null; } catch (e) { }
       s.ocrLaeuft = false; redraw();
     };
   };
@@ -188,7 +191,7 @@
     if (!s.fotoId) { toast(T('Bitte den Tacho fotografieren (Pflicht)', 'Please photograph the odometer (required)'), true); return false; }
     if (s.ocrLaeuft) { toast(T('Einen Moment – das Foto wird noch gelesen', 'One moment – still reading the photo'), true); return false; }
     if (!s.km || Number(s.km) <= 0) { toast(T('Bitte den Kilometerstand eintragen', 'Enter the odometer reading'), true); return false; }
-    if (s.ocr && Math.abs(Number(s.ocr) - Number(s.km)) > 2) return confirmDlg(T('Auf dem Foto steht ', 'The photo shows ') + fmtKm(s.ocr) + ' km, ' + T('eingetragen ist ', 'you entered ') + fmtKm(s.km) + ' km.\n\n' + T('Ist deine Zahl wirklich exakt richtig? Abweichungen werden gemeldet.', 'Is your number really exact? Differences are reported.'));
+    if (s.ocr && s.ocrOk !== false && Math.abs(Number(s.ocr) - Number(s.km)) > 2) return confirmDlg(T('Auf dem Foto steht ', 'The photo shows ') + fmtKm(s.ocr) + ' km, ' + T('eingetragen ist ', 'you entered ') + fmtKm(s.km) + ' km.\n\n' + T('Ist deine Zahl wirklich exakt richtig? Abweichungen werden gemeldet.', 'Is your number really exact? Differences are reported.'));
     return true;
   };
   // Hinweis für Fahrer: Geld übergeben – der Empfänger bestätigt in SEINER App
@@ -361,7 +364,7 @@
       html += card(T('Stopps & Nachnahme (Pflicht)', 'Stops & cash (required)'), '<div class="row"><div class="grow"><label class="lbl">' + T('Anzahl Stopps', 'Number of stops') + '</label><input type="number" inputmode="numeric" data-f="stopps" value="' + esc(f.stopps) + '"></div><div class="grow"><label class="lbl">' + T('Nachnahme (€)', 'Cash on delivery (€)') + '</label><input type="text" inputmode="decimal" data-f="nachnahme" value="' + esc(f.nachnahme) + '" placeholder="0,00"></div></div>' +
         '<button type="button" class="chip mt' + (f.nachnahme === '0' ? ' on' : '') + '" id="nn0" style="width:100%">' + T('Keine Nachnahme heute (0 €)', 'No cash today (0 €)') + '</button>' +
         (Number(String(f.nachnahme).replace(',', '.')) > 0 ? nnHinweis() : ''));
-      html += card(T('Abschluss (Pflicht)', 'Wrap-up (required)'), ynq(f, 'fahrtenbuch', T('Fahrtenbuch ausgefüllt?', 'Logbook filled in?')) +
+      html += card(T('Abschluss (Pflicht)', 'Wrap-up (required)'), ynq(f, 'fahrtenbuch', T('Fahrtenbuch ausgefüllt?', 'Logbook filled in?')) + ynq(f, 'sauber', T('Fahrzeug sauber / Müll entfernt?', 'Vehicle clean / rubbish removed?')) +
         ynq(f, 'neueSchaeden', T('Neue Schäden?', 'New damage?'), { redJa: true, whyJa: T('Was ist passiert? (optional)', 'What happened? (optional)'), hint: '⚠️ ' + T('Freiwillig gemeldete Schäden: nur die Selbstbeteiligung der Versicherung. Schäden, die erst durch unsere Auswertung festgestellt werden: 100 € Strafaufschlag und Abmahnung.', 'Damage reported voluntarily: only the insurance deductible. Damage found later by our checks: €100 penalty and a formal warning.') }));
       html += card('', '<label class="lbl">' + A.t('remark') + '</label><textarea data-f="bemerkung">' + esc(f.bemerkung) + '</textarea>');
       html += '<button class="btn" id="ok">■ ' + T('Tour beenden & melden', 'End tour & report') + '</button></main>';
@@ -378,10 +381,10 @@
       if (f.stopps === '' || isNaN(Number(f.stopps))) return toast(T('Bitte die Anzahl der Stopps eintragen', 'Enter the number of stops'), true);
       const betrag = Number(String(f.nachnahme).replace(',', '.'));
       if (f.nachnahme === '' || isNaN(betrag) || betrag < 0) return toast(T('Bitte den Nachnahmebetrag eintragen (0, wenn keine)', 'Enter the cash amount (0 if none)'), true);
-      if (!f.fahrtenbuch || !f.neueSchaeden) return toast(T('Bitte alle Ja/Nein-Fragen beantworten', 'Please answer all yes/no questions'), true);
+      if (!f.fahrtenbuch || !f.sauber || !f.neueSchaeden) return toast(T('Bitte alle Ja/Nein-Fragen beantworten', 'Please answer all yes/no questions'), true);
       const v = fz || (b.fahrzeuge || []).find(x => norm(x.kennzeichen) === norm(f.kz));
       const payload = { tour: f.tour, kennzeichen: f.kz, fahrzeugId: v ? v.id : '', kmEnde: Number(km.km), kmFotoId: km.fotoId, stopps: Number(f.stopps), nachnahme: betrag,
-        fahrtenbuch: f.fahrtenbuch, fahrtenbuchGrund: f.fahrtenbuchGrund || '', neueSchaeden: f.neueSchaeden, schadenGrund: f.neueSchaedenGrund || '', bemerkung: f.bemerkung };
+        fahrtenbuch: f.fahrtenbuch, fahrtenbuchGrund: f.fahrtenbuchGrund || '', sauber: f.sauber, sauberGrund: f.sauberGrund || '', neueSchaeden: f.neueSchaeden, schadenGrund: f.neueSchaedenGrund || '', bemerkung: f.bemerkung };
       const senden = async extra => {
         overlay('…');
         try {
