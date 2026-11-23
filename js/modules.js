@@ -28,6 +28,67 @@
   const nurPark = () => grp() === 'parkplatz' && !mgmt();
   const nurParkGuard = fn => (...a) => { if (nurPark()) { location.hash = '#home'; return; } return fn(...a); };
   const errMsg = e => (e && e.message) || 'Fehler';
+
+  /* ---------- Benachrichtigung: Protokoll bestätigen ----------
+   * Wenn jemand ein Protokoll erstellt hat und die andere Person (übergebend/übernehmend) nicht da war,
+   * muss diese es in der App bestätigen + unterschreiben. Dafür:
+   *  - Zahl am App-Symbol (Badge), solange etwas offen ist
+   *  - Handy-Benachrichtigung (wenn erlaubt), einmal je Protokoll
+   *  - Popup beim Öffnen der App
+   *  - alle 3 Minuten (und beim Zurückkehren in die App) leise nachschauen
+   * Zusätzlich schickt das Backend der Person eine E-Mail.
+   */
+  const NOTI = (function () {
+    const kann = () => 'Notification' in window && 'serviceWorker' in navigator;
+    const ls = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
+    const gezeigt = {}; // Popup je Protokoll nur einmal pro App-Start
+    let letzteZahl = null;
+    function zeigeFrage() {
+      if (!kann() || !state.user || Notification.permission !== 'default') return false;
+      const sp = Number(ls('vip_noti_spaeter') || 0);
+      return !sp || Date.now() - sp > 3 * 24 * 3600 * 1000;
+    }
+    function spaeter() { ls('vip_noti_spaeter', String(Date.now())); }
+    async function erlauben() { if (!kann()) return 'denied'; try { return await Notification.requestPermission(); } catch (e) { return 'denied'; } }
+    function badge(n) { try { if (navigator.setAppBadge) { if (n) navigator.setAppBadge(n); else if (navigator.clearAppBadge) navigator.clearAppBadge(); } } catch (e) { } }
+    async function melden(list, popup) {
+      list = list || []; badge(list.length); letzteZahl = list.length;
+      if (!list.length) return;
+      let seen = {}; try { seen = JSON.parse(ls('vip_noti_seen') || '{}') || {}; } catch (e) { }
+      const neu = list.filter(p => !seen[p.id]);
+      if (neu.length && kann() && Notification.permission === 'granted') {
+        try {
+          const reg = await navigator.serviceWorker.ready;
+          neu.forEach(p => reg.showNotification(T('Protokoll bestätigen', 'Confirm protocol') + ': ' + p.kennzeichen, {
+            body: p.nr + ' · ' + p.von + ' → ' + p.an + '\n' + T('Bitte prüfen und mit Unterschrift bestätigen.', 'Please check and confirm with your signature.'),
+            tag: 'vip-confirm-' + p.id, icon: 'img/icon-192.png', badge: 'img/icon-192.png', data: { url: '#protocol/' + p.id }
+          }));
+          neu.forEach(p => seen[p.id] = Date.now()); ls('vip_noti_seen', JSON.stringify(seen));
+        } catch (e) { }
+      }
+      const offen = list.filter(p => !gezeigt[p.id]);
+      if (popup && offen.length && onHome() && !document.querySelector('.sheet-bg')) {
+        offen.forEach(p => gezeigt[p.id] = true);
+        const s = sheet('<h2>✍️ ' + T('Protokoll bestätigen', 'Confirm protocol') + '</h2><p>' + T('Ein Übergabeprotokoll wartet auf deine Unterschrift. Bitte prüfe es (Fotos, Schäden, km) und bestätige es – oder widersprich, wenn etwas nicht stimmt.', 'A handover protocol is waiting for your signature. Please check it (photos, damages, km) and confirm it – or object if something is wrong.') + '</p>' +
+          list.map(p => '<button class="list-item" data-go="' + p.id + '"><div class="main"><b>' + esc(p.kennzeichen) + ' · ' + esc(p.nr) + '</b><span>' + fmtDT(p.datum) + ' · ' + esc(p.von) + ' → ' + esc(p.an) + (p.erstelltVon ? ' · ' + T('erstellt von', 'created by') + ' ' + esc(p.erstelltVon) : '') + '</span></div><div class="chev">›</div></button>').join(''));
+        $$('[data-go]', s.el).forEach(el => el.onclick = () => { s.close(); go('protocol/' + el.getAttribute('data-go')); });
+      }
+    }
+    async function pruefen() {
+      if (!state.user || !navigator.onLine || document.visibilityState === 'hidden') return;
+      try {
+        const list = await API.call('meineOffenen', {}, { timeout: 20000 });
+        const vorher = letzteZahl;
+        await melden(list, true);
+        if (state.boot) state.boot.offeneBestaetigungen = list;
+        if (vorher !== null && vorher !== list.length && onHome()) home();
+      } catch (e) { }
+    }
+    setInterval(pruefen, 3 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(pruefen, 800); });
+    if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.nav) location.hash = e.data.nav; });
+    return { zeigeFrage, spaeter, erlauben, melden, pruefen };
+  })();
   const pill = g => { const x = GRP[g] || GRP.ups; return '<span class="badge" style="background:' + x.col + ';color:' + x.txt + ';border-color:' + x.col + '">' + esc(x.de) + '</span>'; };
   const card = (title, inner, cls) => '<div class="card ' + (cls || '') + '">' + (title ? '<h3>' + esc(title) + '</h3>' : '') + inner + '</div>';
 
@@ -97,6 +158,7 @@
     if (mgmt() && b.km && b.km.warnungen) html += '<button class="card danger kmalert" data-nav="kilometer" style="display:block;width:100%;text-align:left"><h3>🛣️ ' + T('Kilometer', 'Mileage') + ': ' + b.km.warnungen + ' ' + T('Fahrzeug' + (b.km.warnungen === 1 ? '' : 'e') + ' kritisch', 'critical') + '</h3>' + b.km.fahrzeuge.map(k => '<div class="small">' + esc(k.kennzeichen) + ' – ' + fmtKm(k.gefahren) + ' / ' + fmtKm(k.limit) + ' km · ' + esc(k.statusText) + (k.prognose != null ? ' (' + T('Prognose', 'forecast') + ' ' + fmtKm(k.prognose) + ')' : '') + '</div>').join('') + (b.km.tausch ? '<div class="small mt"><b>🔁 ' + b.km.tausch + ' ' + T('Tauschvorschlag' + (b.km.tausch === 1 ? '' : 'e') + ' ansehen ›', 'swap suggestion(s) ›') + '</b></div>' : '') + '</button>';
     if (outbox.length) html += '<div class="card gold"><h2>' + A.t('pending') + ' (' + outbox.length + ')</h2><p class="small muted">' + A.t('pendingHint') + '</p></div>';
     if (draft) html += '<div class="card gold"><h2>' + A.t('draftFound') + '</h2><p class="small muted">' + esc(draft.kennzeichenAnzeige || '–') + ' · ' + A.t('step') + ' ' + (draft.step || 1) + '/8</p><div class="btn-row"><button class="btn" id="cont">' + A.t('continueDraft') + '</button><button class="btn ghost" id="disc">' + A.t('discardDraft') + '</button></div></div>';
+    if (NOTI.zeigeFrage()) html += '<div class="card gold" id="noti-card"><h3>🔔 ' + T('Benachrichtigungen einschalten', 'Turn on notifications') + '</h3><p class="small" style="margin:0 0 8px">' + T('Dann meldet sich dein Handy, wenn du ein Übergabeprotokoll bestätigen und unterschreiben musst.', 'Your phone will tell you when you have to confirm and sign a handover protocol.') + '</p><div class="btn-row"><button class="btn small" id="noti-ja">' + T('Einschalten', 'Turn on') + '</button><button class="btn small ghost" id="noti-nein">' + T('Später', 'Later') + '</button></div></div>';
     (b.offeneBestaetigungen || []).forEach(p => { html += '<div class="card danger"><h2>' + A.t('toConfirm') + '</h2><button class="list-item" data-nav="protocol/' + p.id + '"><div class="main"><b>' + esc(p.kennzeichen) + ' · ' + esc(p.nr) + '</b><span>' + fmtDT(p.datum) + ' · ' + esc(p.von) + ' → ' + esc(p.an) + '</span></div><div class="chev">›</div></button></div>'; });
     if (nurPark()) html += '<button class="btn big" id="new">⚠️ ' + T('Schaden melden', 'Report damage') + '</button><p class="small muted center" style="margin:6px 0 0">' + T('Schaden am Fahrzeug? Fahrzeug wählen, Fotos machen, Schaden antippen.', 'Damage on a vehicle? Choose vehicle, take photos, tap the damage.') + '</p><div class="gold-line"></div>';
     else html += '<button class="btn big" id="new">＋ ' + A.t('newProtocol') + '</button><div class="gold-line"></div>';
@@ -117,6 +179,8 @@
     html += '</div></main>';
     render(html);
     $$('.tile.soon').forEach(el => el.onclick = () => toast(T('Dieser Bereich kommt bald.', 'This area is coming soon.')));
+    if ($('#noti-ja')) { $('#noti-ja').onclick = async () => { await NOTI.erlauben(); NOTI.melden(b.offeneBestaetigungen, true); home(); }; $('#noti-nein').onclick = () => { NOTI.spaeter(); const c = $('#noti-card'); if (c) c.remove(); }; }
+    if (!stale) NOTI.melden(b.offeneBestaetigungen, true);
     $('#new').onclick = async () => { if (draft) { if (!(await confirmDlg(A.t('reallyDiscard')))) return; await A.discardDraft(draft.clientId); } A.startDraft(); };
     if (draft) { $('#cont').onclick = () => { state.draft = draft; go('new'); }; $('#disc').onclick = async () => { if (await confirmDlg(A.t('reallyDiscard'))) { await A.discardDraft(draft.clientId); home(); } }; }
   }

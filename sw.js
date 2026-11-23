@@ -1,7 +1,7 @@
 // VIP Freudenau GmbH App – Service Worker
 // Strategie: Dateien sofort aus dem Speicher liefern, im Hintergrund aktualisieren.
 // Bei jeder neuen Version CACHE hochzählen, dann holt sich das Handy alles einmal neu.
-const CACHE = 'vip-app-v1.7.3-1';
+const CACHE = 'vip-app-v1.7.3-2';
 const FILES = ['./', './index.html', './css/app.css', './js/config.js', './js/i18n.js', './js/db.js', './js/api.js', './js/img.js', './js/sig.js', './js/sil.js', './js/app.js', './js/modules.js', './manifest.webmanifest', './img/logo.png', './img/logo-viparcel.png', './img/logo-viparking.png', './img/icon-192.png', './img/apple-touch-icon.png'];
 const LATER = ['./js/van3d.js', './img/icon-512.png'];
 
@@ -20,5 +20,16 @@ self.addEventListener('fetch', e => {
     const net = fetch(e.request).then(res => { if (res && res.ok) c.put(e.request, res.clone()); return res; }).catch(() => null);
     if (hit) { e.waitUntil(net); return hit; }
     return (await net) || (await c.match('./index.html')) || Response.error();
+  }));
+});
+
+// Tipp auf eine Benachrichtigung (z. B. „Protokoll bestätigen“): App öffnen bzw. nach vorne holen und zum Protokoll springen
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const ziel = (e.notification.data && e.notification.data.url) || '#home';
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    const c = list[0];
+    if (c) { c.postMessage({ nav: ziel }); return c.focus(); }
+    return self.clients.openWindow(new URL('./' + ziel, self.registration.scope).href);
   }));
 });
