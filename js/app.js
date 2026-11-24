@@ -152,6 +152,7 @@
     state.draft = { clientId: uuid(), step: 1, createdAt: new Date().toISOString(), fahrzeugId: '', neuesFahrzeug: null, ctx: null, anlass: 'wechsel', vonId: '', anId: state.user.id, km: '', tank: '', bedingungen: [], fotos: {}, extraFotos: [], neueSchaeden: [], bestaetigteSchaeden: [], inventar: {}, innenraumBeschaedigt: false, innenraumText: '', warnleuchten: '', bemerkung: '', unterschriftVon: '', unterschriftAn: '', abwesend: '' };
     if (opts.fahrzeugId) { state.draft.autoFahrzeug = opts.fahrzeugId; state.draft.anlass = 'wechsel'; }
     if (opts.zurTour) state.draft.zurTour = true;
+    if (opts.nurSchaden) state.draft.nurSchaden = true; // nur Schaden melden, kein ganzes Protokoll
     go('new');
   }
   async function saveDraft() { if (!state.draft) return; state.draft.updatedAt = new Date().toISOString(); await DB.put('drafts', state.draft); }
@@ -160,6 +161,9 @@
   function wizardShell(step, body, nav) {
     const prog = STEPS.map((s, i) => '<i class="' + (i + 1 < step ? 'done' : i + 1 === step ? 'cur' : '') + '"></i>').join('');
     const d = state.draft;
+    if (d.nurSchaden) return topbar((d.kennzeichenAnzeige ? d.kennzeichenAnzeige + ' · ' : '') + (I18N.lang === 'en' ? 'Report damage' : 'Schaden melden'), { back: 'home' }) +
+      '<main><div class="step-title"><h1>' + (I18N.lang === 'en' ? 'Report new damage' : 'Neuen Schaden melden') + '</h1></div>' + body + '</main>' +
+      '<div class="bottom-nav"><div class="inner"><button class="btn" id="w-next">' + (I18N.lang === 'en' ? 'Send damage report' : 'Schaden melden') + ' ›</button></div></div>';
     return topbar((d.kennzeichenAnzeige ? d.kennzeichenAnzeige + ' · ' : '') + t('newProtocol'), { back: 'home' }) +
       '<main><div class="progress">' + prog + '</div><div class="step-title"><span class="n">' + t('step') + ' ' + step + ' ' + t('of') + ' 8</span><h1>' + t(STEPS[step - 1]) + '</h1></div>' + body + '</main>' +
       '<div class="bottom-nav"><div class="inner">' + (step > 1 ? '<button class="btn ghost" id="w-back">‹ ' + t('back') + '</button>' : '') + (nav || '<button class="btn" id="w-next">' + t('next') + ' ›</button>') + '</div></div>';
@@ -223,7 +227,7 @@
     else { d.vonId = 'firma'; d.anId = state.user.id; }
     if (lp && lp.inventar) { d.inventar = {}; Object.keys(lp.inventar).filter(k => INVENTAR.some(it => it[0] === k)).forEach(k => { d.inventar[k] = { soll: lp.inventar[k].soll, haben: lp.inventar[k].soll, nr: lp.inventar[k].nr || '' }; }); }
     d.bestaetigteSchaeden = [];
-    d.step = 2; await saveDraft(); viewWizard();
+    d.step = d.nurSchaden ? 5 : 2; await saveDraft(); viewWizard();
   }
 
   // --- Schritt 2: Anlass & Personen
@@ -348,7 +352,7 @@
       for (const k of known) {
         const st = d.bestaetigteSchaeden.find(b => b.schadenId === k.id);
         knownHtml += '<div class="dmg-item"><div class="code">' + esc(k.code) + '</div>' + (k.thumb ? '<img class="thumb" src="' + k.thumb + '">' : '') + '<div class="info"><b>' + esc(k.codeText || CODES[k.code] || '') + '</b> · ' + t(VIEW_LBL[k.ansicht] || 'left') + (k.groesse ? ', ' + t(k.groesse) : '') + (k.beschreibung ? '<br>' + esc(k.beschreibung) : '') + '<span>' + t('firstSeen') + ' ' + fmtD(k.erstmeldungAm) + '</span>' +
-          '<div class="chips two mt" style="gap:6px"><button class="chip ' + (st && st.status === 'vorhanden' ? 'on' : '') + '" data-known="' + k.id + '" data-st="vorhanden" style="min-height:40px;font-size:13px">' + t('stillThere') + '</button><button class="chip green ' + (st && st.status === 'repariert' ? 'on' : '') + '" data-known="' + k.id + '" data-st="repariert" style="min-height:40px;font-size:13px">' + t('repaired') + '</button></div></div></div>';
+          (d.nurSchaden ? '' : '<div class="chips two mt" style="gap:6px"><button class="chip ' + (st && st.status === 'vorhanden' ? 'on' : '') + '" data-known="' + k.id + '" data-st="vorhanden" style="min-height:40px;font-size:13px">' + t('stillThere') + '</button><button class="chip green ' + (st && st.status === 'repariert' ? 'on' : '') + '" data-known="' + k.id + '" data-st="repariert" style="min-height:40px;font-size:13px">' + t('repaired') + '</button></div>') + '</div></div>';
       }
       knownHtml += '</div>';
     }
@@ -374,6 +378,7 @@
     $$('[data-view]').forEach(b => b.onclick = () => { silView = b.getAttribute('data-view'); stepDamages(); });
     $$('[data-known]').forEach(b => b.onclick = async () => { const id = b.getAttribute('data-known'), st = b.getAttribute('data-st'); const ex = d.bestaetigteSchaeden.find(x => x.schadenId === id); if (ex) ex.status = st; else d.bestaetigteSchaeden.push({ schadenId: id, status: st }); await saveDraft(); stepDamages(); });
     $$('[data-rm]').forEach(b => b.onclick = async () => { d.neueSchaeden.splice(Number(b.getAttribute('data-rm')), 1); await saveDraft(); stepDamages(); });
+    if (d.nurSchaden) { $('#w-next').onclick = () => sendSchaden(); return; }
     wizNav(5, () => { const open = known.filter(k => !d.bestaetigteSchaeden.find(b => b.schadenId === k.id)); return open.length ? t('knownHint') + ' (' + open.length + ' ' + t('unchecked') + ')' : null; });
   }
   function newDamageSheet(view, x, y, pos3d) {
@@ -396,7 +401,7 @@
       // gleicher Schaden (gleiche Seite, gleiche Art, fast gleiche Stelle) schon bekannt oder schon eingetragen? -> zusammenführen statt doppelt
       const nah = (a, ax, ay) => a.ansicht === n.ansicht && a.code === n.code && Math.hypot((Number(ax) || 0) - (Number(n.x) || 0), (Number(ay) || 0) - (Number(n.y) || 0)) <= 5;
       const bekannt = ((d.ctx && d.ctx.offeneSchaeden) || []).find(k => nah(k, k.x, k.y));
-      if (bekannt) {
+      if (bekannt && !d.nurSchaden) {
         if (await confirmDlg(I18N.lang === 'en' ? 'This damage is already recorded at this spot. Mark it as "still there" instead of adding it twice?' : 'Dieser Schaden ist an dieser Stelle schon erfasst. Statt doppelt anlegen als „noch vorhanden“ markieren?')) {
           const ex = d.bestaetigteSchaeden.find(x => x.schadenId === bekannt.id); if (ex) { ex.status = 'vorhanden'; ex.localPhotoId = n.localPhotoId; } else d.bestaetigteSchaeden.push({ schadenId: bekannt.id, status: 'vorhanden', localPhotoId: n.localPhotoId });
           await saveDraft(); s.close(); stepDamages(); return;
@@ -405,6 +410,25 @@
       if (d.neueSchaeden.find(x => nah(x, x.x, x.y))) { toast(I18N.lang === 'en' ? 'You already added this damage.' : 'Diesen Schaden hast du schon eingetragen.', true); return; }
       d.neueSchaeden.push(n); await saveDraft(); s.close(); stepDamages();
     };
+  }
+
+  // --- Nur Schaden melden (ohne ganzes Protokoll), z. B. nach „Neue Schäden: ja“ beim Tourende
+  async function sendSchaden() {
+    const d = state.draft;
+    if (!d.neueSchaeden.length) return toast(I18N.lang === 'en' ? 'Tap the damaged spot on the vehicle first.' : 'Bitte zuerst die beschädigte Stelle am Fahrzeug antippen.', true);
+    overlay(t('sending'));
+    try {
+      let pend = await API.pendingPhotos(d.clientId);
+      for (const p of pend) { overlay(t('uploading', { n: pend.length })); await API.uploadPhoto(p); }
+      const photos = await DB.byIndex('photos', 'draft', d.clientId); const byLocal = {}; photos.forEach(p => byLocal[p.localId] = p);
+      const schaeden = d.neueSchaeden.map(n => ({ ansicht: n.ansicht, x: n.x, y: n.y, pos3d: n.pos3d || null, code: n.code, groesse: n.groesse, text: n.text, photoId: (byLocal[n.localPhotoId] || {}).photoId || '' }));
+      const r = await API.call('meldeSchaden', { fahrzeugId: d.fahrzeugId, clientId: d.clientId, schaeden }, { timeout: 120000 });
+      for (const p of photos) await DB.del('photos', p.localId);
+      if (van3dView) { try { van3dView.destroy(); } catch (x) { } van3dView = null; }
+      await DB.del('drafts', d.clientId); state.draft = null; state.boot = null; hideOverlay();
+      render(topbar(I18N.lang === 'en' ? 'Reported' : 'Gemeldet') + '<main><div class="card ok center"><div style="font-size:52px">✓</div><h1>' + (I18N.lang === 'en' ? 'Damage reported' : 'Schaden gemeldet') + '</h1><p>' + esc(d.kennzeichenAnzeige || '') + '</p>' + (r && r.zusammengefuehrt ? '<p class="small muted">' + r.zusammengefuehrt + (I18N.lang === 'en' ? ' already known – added to the existing damage.' : ' davon schon bekannt – zum vorhandenen Schaden gelegt.') + '</p>' : '') + '<p class="small">' + (I18N.lang === 'en' ? 'Thank you for reporting it yourself.' : 'Danke, dass du den Schaden selbst meldest.') + '</p></div><button class="btn" data-nav="home">' + t('home') + '</button></main>');
+      bindNav();
+    } catch (e) { hideOverlay(); toast(e.code === 'NET' ? t('errNet') + ' ' + (I18N.lang === 'en' ? 'Please try again when you have signal.' : 'Bitte nochmal senden, wenn du Netz hast.') : errMsg(e), true); }
   }
 
   // --- Schritt 6: Innenraum & Inventar

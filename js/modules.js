@@ -349,7 +349,7 @@
       else html += card('2 · ' + T('Kilometerstand (Pflicht)', 'Odometer (required)'), sel.fz ? kmFoto(km, 'ks') + '<div id="kminfo"></div>'
         : '<p class="small muted" style="margin:0">' + T('Bitte zuerst oben das Fahrzeug auswählen – dann wird der Kilometerstand diesem Fahrzeug zugeordnet.', 'Choose the vehicle first – the reading is then assigned to it.') + '</p>', sel.fz && !km.fotoId ? 'gold' : '');
       html += card('3 · ' + T('Tour', 'Tour'), (plan.tour ? '<p class="small muted">' + T('Laut Dienstplan', 'Per schedule') + ': <b>' + esc(plan.tour) + '</b> ' + esc(plan.area || '') + '</p>' : '') + '<div class="chips" style="grid-template-columns:repeat(auto-fill,minmax(64px,1fr))">' + tours.map(t => '<button class="chip ' + (sel.tour === t.code ? 'on' : '') + '" data-tour="' + esc(t.code) + '">' + esc(t.code) + '</button>').join('') + '</div>');
-      html += card('4 · ' + T('Sicherheits-Check (Pflicht)', 'Safety check (required)'), ynq(chk, 'warnweste', T('Warnweste an?', 'Wearing hi-vis vest?')) + ynq(chk, 'schuhe', T('Arbeitsschuhe an?', 'Wearing safety shoes?')) + ynq(chk, 'uniform', T('Uniform an?', 'Wearing uniform?')));
+      html += card('4 · ' + T('Sicherheits-Check & Ausrüstung (Pflicht)', 'Safety check & equipment (required)'), ynq(chk, 'warnweste', T('Warnweste an?', 'Wearing hi-vis vest?')) + ynq(chk, 'schuhe', T('Arbeitsschuhe an?', 'Wearing safety shoes?')) + ynq(chk, 'uniform', T('Uniform an?', 'Wearing uniform?')) + ynq(chk, 'diad', T('DIAD-Ladegerät dabei?', 'DIAD charger with you?')) + ynq(chk, 'sumup', T('SumUp dabei?', 'SumUp with you?')));
       html += '<button class="btn' + (fehlt ? ' disabled' : '') + '" id="ok">▶ ' + T('Tour starten', 'Start tour') + '</button></main>';
       render(html); window.scrollTo(0, y);
       $$('[data-fz]').forEach(c => c.onclick = () => { const v = fzList.find(x => x.id === c.getAttribute('data-fz')); if (!sel.fz || sel.fz.id !== v.id) { sel.fz = v; Object.assign(km, { km: '', fotoId: '', fotoUrl: '', ocr: null, manuell: false }); } draw(); });
@@ -396,11 +396,11 @@
       if (protokollFehlt(sel.fz)) return toast(T('Bitte zuerst das Übergabeprotokoll machen', 'Please complete the handover protocol first'), true);
       if (!bestaetigt && !kmGrund && !(await kmFotoPruefen(km))) return;
       if (!sel.tour) return toast(T('Bitte Tour wählen', 'Choose a tour'), true);
-      if (!chk.warnweste || !chk.schuhe || !chk.uniform) return toast(T('Bitte den Sicherheits-Check beantworten', 'Please answer the safety check'), true);
+      if (!chk.warnweste || !chk.schuhe || !chk.uniform || !chk.diad || !chk.sumup) return toast(T('Bitte den Sicherheits-Check und die Ausrüstung beantworten', 'Please answer the safety check and equipment'), true);
       overlay('…');
       try {
         const r = await API.call('startTour', { tour: sel.tour, kennzeichen: sel.fz.kennzeichen, fahrzeugId: sel.fz.id, kmStart: Number(km.km), kmFotoId: km.fotoId, kmBestaetigt: bestaetigt, kmGrund: kmGrund || '', protokollAusstehend: ausstehend.indexOf(sel.fz.id) >= 0,
-          warnweste: chk.warnweste, warnwesteGrund: chk.warnwesteGrund || '', schuhe: chk.schuhe, schuheGrund: chk.schuheGrund || '', uniform: chk.uniform, uniformGrund: chk.uniformGrund || '' }, { timeout: 90000 });
+          warnweste: chk.warnweste, warnwesteGrund: chk.warnwesteGrund || '', schuhe: chk.schuhe, schuheGrund: chk.schuheGrund || '', uniform: chk.uniform, uniformGrund: chk.uniformGrund || '', diad: chk.diad, diadGrund: chk.diadGrund || '', sumup: chk.sumup, sumupGrund: chk.sumupGrund || '' }, { timeout: 90000 });
         hideOverlay(); state.boot = null;
         const warn = kmHinweisMa(r && r.km);
         if (warn) { const s = sheet(warn + '<button class="btn" id="kmok">' + T('Verstanden', 'Got it') + '</button>'); $('#kmok', s.el).onclick = () => { s.close(); go('home'); }; }
@@ -474,7 +474,7 @@
       html += card(T('Tour & Fahrzeug', 'Tour & vehicle'), fz ? '<p style="margin:0;font-size:18px"><b>' + esc(f.tour || '–') + '</b> · 🚐 ' + esc(fz.kennzeichen) + (tb.kmStart ? '<span class="small muted"> · Start ' + fmtKm(tb.kmStart) + ' km</span>' : '') + '</p>'
         : '<div class="row"><div class="grow"><label class="lbl">Tour</label><select data-f="tour">' + (b.touren || []).map(t => '<option value="' + esc(t.code) + '" ' + (f.tour === t.code ? 'selected' : '') + '>' + esc(t.code) + '</option>').join('') + '</select></div><div class="grow"><label class="lbl">' + A.t('plate') + '</label><input type="text" data-f="kz" value="' + esc(f.kz) + '" autocapitalize="characters"></div></div>');
       html += card(T('Kilometerstand Ende (Pflicht)', 'Odometer at end (required)'), kmFoto(km, 'ke'), !km.fotoId ? 'gold' : '');
-      html += card(T('Stopps & Nachnahme (Pflicht)', 'Stops & cash (required)'), '<div class="row"><div class="grow"><label class="lbl">' + T('Anzahl Stopps', 'Number of stops') + '</label><input type="number" inputmode="numeric" data-f="stopps" value="' + esc(f.stopps) + '"></div><div class="grow"><label class="lbl">' + T('Nachnahme (€)', 'Cash on delivery (€)') + '</label><input type="text" inputmode="decimal" data-f="nachnahme" value="' + esc(f.nachnahme) + '" placeholder="0,00"></div></div>' +
+      html += card(T('Nachnahme (Pflicht)', 'Cash on delivery (required)'), '<label class="lbl">' + T('Nachnahme (€)', 'Cash on delivery (€)') + '</label><input type="text" inputmode="decimal" data-f="nachnahme" value="' + esc(f.nachnahme) + '" placeholder="0,00">' +
         '<button type="button" class="chip mt' + (f.nachnahme === '0' ? ' on' : '') + '" id="nn0" style="width:100%">' + T('Keine Nachnahme heute (0 €)', 'No cash today (0 €)') + '</button>' +
         (Number(String(f.nachnahme).replace(',', '.')) > 0 ? nnHinweis() : ''));
       html += card(T('Abschluss (Pflicht)', 'Wrap-up (required)'), ynq(f, 'fahrtenbuch', T('Fahrtenbuch ausgefüllt?', 'Logbook filled in?')) + ynq(f, 'sauber', T('Fahrzeug sauber / Müll entfernt?', 'Vehicle clean / rubbish removed?')) +
@@ -491,12 +491,11 @@
     };
     const submit = async () => {
       if (!(await kmFotoPruefen(km))) return;
-      if (f.stopps === '' || isNaN(Number(f.stopps))) return toast(T('Bitte die Anzahl der Stopps eintragen', 'Enter the number of stops'), true);
       const betrag = Number(String(f.nachnahme).replace(',', '.'));
       if (f.nachnahme === '' || isNaN(betrag) || betrag < 0) return toast(T('Bitte den Nachnahmebetrag eintragen (0, wenn keine)', 'Enter the cash amount (0 if none)'), true);
       if (!f.fahrtenbuch || !f.sauber || !f.neueSchaeden) return toast(T('Bitte alle Ja/Nein-Fragen beantworten', 'Please answer all yes/no questions'), true);
       const v = fz || (b.fahrzeuge || []).find(x => norm(x.kennzeichen) === norm(f.kz));
-      const payload = { tour: f.tour, kennzeichen: f.kz, fahrzeugId: v ? v.id : '', kmEnde: Number(km.km), kmFotoId: km.fotoId, stopps: Number(f.stopps), nachnahme: betrag,
+      const payload = { tour: f.tour, kennzeichen: f.kz, fahrzeugId: v ? v.id : '', kmEnde: Number(km.km), kmFotoId: km.fotoId, nachnahme: betrag,
         fahrtenbuch: f.fahrtenbuch, fahrtenbuchGrund: f.fahrtenbuchGrund || '', sauber: f.sauber, sauberGrund: f.sauberGrund || '', neueSchaeden: f.neueSchaeden, schadenGrund: f.neueSchaedenGrund || '', bemerkung: f.bemerkung };
       const senden = async extra => {
         overlay('…');
@@ -506,8 +505,8 @@
           render(topbar(T('Gemeldet', 'Reported')) + '<main><div class="card ok center"><div style="font-size:52px">✓</div><h1>' + T('Tour gemeldet', 'Tour reported') + '</h1><p>' + esc(r.tourIst) + ' · ' + esc(r.kennzeichenIst) + ' · ' + fmtKm(r.kmEnde) + ' km</p>' +
             (r.nachnahme ? '<p>💶 ' + fmtEur(r.nachnahme.betrag) + ' – ' + (r.nachnahme.status === 'offen' ? T('unterschrieben – bitte übergeben, der Empfänger zeichnet in seiner App gegen', 'signed – please hand over, the receiver countersigns in their app') : T('bestätigt von', 'confirmed by') + ' ' + esc(r.nachnahme.empfaenger)) + '</p>' : '') +
             (r.kmAuffaellig ? '<p class="small danger">' + esc(r.kmAuffaellig) + '</p>' : '') + '</div>' +
-            (f.neueSchaeden === 'ja' && v ? '<button class="btn" id="np">📋 ' + T('Schaden jetzt mit Protokoll dokumentieren', 'Document damage with a protocol now') + '</button>' : '') + '<button class="btn ghost mt" data-nav="home">' + A.t('home') + '</button></main>');
-          if ($('#np')) $('#np').onclick = () => A.startDraft({ fahrzeugId: v.id });
+            (f.neueSchaeden === 'ja' && v ? '<button class="btn" id="np">⚠️ ' + T('Schaden jetzt melden (Stelle + Foto)', 'Report the damage now (spot + photo)') + '</button>' : '') + '<button class="btn ghost mt" data-nav="home">' + A.t('home') + '</button></main>');
+          if ($('#np')) $('#np').onclick = () => A.startDraft({ fahrzeugId: v.id, nurSchaden: true });
           return true;
         } catch (e) {
           hideOverlay();
