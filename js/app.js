@@ -186,7 +186,7 @@
     const sorted = (b.fahrzeuge || []).slice().sort((a, c) => (c.letztesProtokollAm || '').localeCompare(a.letztesProtokollAm || ''));
     const list = mine.concat(sorted.filter(v => !mine.find(m => m.id === v.id)));
     const body = '<input type="text" id="v-search" placeholder="' + t('search') + '" autocapitalize="characters" autocomplete="off"><p class="small muted mt">' + t('pickVehicle') + '</p><div id="v-list"></div>' +
-      '<div class="card mt"><h3>' + t('orPlate') + '</h3><label class="lbl">' + t('plate') + '</label><input type="text" id="v-plate" placeholder="DZ-XX 123" autocapitalize="characters" autocomplete="off"><label class="lbl">' + t('model') + '</label><input type="text" id="v-model" placeholder="z. B. Mercedes Sprinter"><button class="btn secondary mt" id="v-new">' + t('newVehicle') + '</button></div>';
+      '<div class="card mt"><h3>' + t('orPlate') + '</h3><label class="lbl">' + t('plate') + '</label><input type="text" id="v-plate" placeholder="DZ-XX 123" autocapitalize="characters" autocomplete="off"><label class="lbl">' + t('model') + '</label><select id="v-model"><option value="">' + (I18N.lang === 'en' ? '– please choose –' : '– bitte wählen –') + '</option>' + ['Mercedes Sprinter', 'VW Crafter', 'MAN TGE', 'Sonstiges'].map(m => '<option>' + m + '</option>').join('') + '</select><button class="btn secondary mt" id="v-new">' + t('newVehicle') + '</button></div>';
     render(wizardShell(1, body, '<button class="btn" id="w-next">' + t('next') + ' ›</button>'));
     const renderList = q => {
       q = (q || '').toUpperCase().replace(/[^A-Z0-9ÄÖÜ]/g, '');
@@ -196,11 +196,14 @@
     };
     renderList('');
     $('#v-search').oninput = e => renderList(e.target.value);
-    $('#v-new').onclick = () => {
+    $('#v-new').onclick = async () => {
       const plate = $('#v-plate').value.trim(); if (plate.replace(/[^A-Za-z0-9]/g, '').length < 3) return toast(t('plateNeeded'), true);
       const norm = plate.toUpperCase().replace(/[^A-Z0-9ÄÖÜ]/g, '');
       const ex = (b.fahrzeuge || []).find(v => String(v.kennzeichen).toUpperCase().replace(/[^A-Z0-9ÄÖÜ]/g, '') === norm);
       if (ex) return selectVehicle(ex.id);
+      if (!$('#v-model').value) return toast(I18N.lang === 'en' ? 'Please choose the model' : 'Bitte das Fahrzeugmodell wählen', true);
+      const nn = s => s.replace(/[\s-]/g, ''); const aehnlich = (b.fahrzeuge || []).filter(v => { const a = nn(String(v.kennzeichen).toUpperCase()), c = norm; if (a.length !== c.length) return false; let diff = 0; for (let i = 0; i < a.length; i++) if (a[i] !== c[i]) diff++; return diff === 1; });
+      if (aehnlich.length && !(await confirmDlg((I18N.lang === 'en' ? 'Very similar plate already exists: ' : 'Es gibt schon ein sehr ähnliches Kennzeichen: ') + aehnlich.map(v => v.kennzeichen).join(', ') + (I18N.lang === 'en' ? '\n\nTypo? Add anyway?' : '\n\nVertippt? Trotzdem neu anlegen?')))) return;
       d.fahrzeugId = ''; d.neuesFahrzeug = { kennzeichen: plate.toUpperCase(), modell: $('#v-model').value.trim() }; d.kennzeichenAnzeige = plate.toUpperCase(); d.ctx = { fahrzeug: { kennzeichen: plate.toUpperCase() }, letztesProtokoll: null, offeneSchaeden: [] };
       d.vonId = 'firma'; d.anId = state.user.id; d.bestaetigteSchaeden = [];
       d.step = 2; saveDraft(); viewWizard();
@@ -288,17 +291,21 @@
     const conds = [['dunkelheit', 'dark'], ['nass', 'wet'], ['schnee', 'snow'], ['verschmutzt', 'dirty']];
     const body = '<label class="lbl">' + t('km') + '</label><input type="number" inputmode="numeric" pattern="[0-9]*" id="km" class="huge" value="' + esc(d.km) + '" placeholder="0">' +
       (lp && lp.km !== '' ? '<p class="small muted mt">' + t('lastKm', { km: lp.km, date: fmtD(lp.datum) }) + '</p>' : '') + '<div class="field-error hidden" id="km-warn"></div>' +
+      '<div id="km-grund-box" class="hidden"><label class="lbl">' + (I18N.lang === 'en' ? 'Reason (required) – odometers cannot run backwards' : 'Grund (Pflicht) – Kilometer können nicht rückwärts laufen') + '</label><textarea id="km-grund" maxlength="300" placeholder="' + (I18N.lang === 'en' ? 'e.g. last reading was wrong' : 'z. B. letzter Stand war falsch eingetragen') + '">' + esc(d.kmGrund || '') + '</textarea></div>' +
       '<div class="photo-grid mt" style="grid-template-columns:1fr 1fr">' + await photoTile('tacho', d.fotos.tacho, t('kmPhoto'), true) + '<div class="small muted" style="align-self:center">' + (I18N.lang === 'en' ? 'Required – the reading is checked against the photo.' : 'Pflicht – der Kilometerstand wird mit dem Foto abgeglichen.') + '</div></div>' +
       '<h3 class="mt">' + t('tank') + '</h3><div class="chips five">' + tanks.map(x => '<button class="chip ' + (d.tank === x ? 'on' : '') + '" data-tank="' + x + '">' + x + '</button>').join('') + '</div>' +
       '<h3 class="mt">' + t('conditions') + '</h3><div class="chips">' + conds.map(c => '<button class="chip ' + (d.bedingungen.indexOf(c[0]) >= 0 ? 'on' : '') + '" data-cond="' + c[0] + '">' + t(c[1]) + '</button>').join('') + '</div>';
     render(wizardShell(3, body));
     const kmIn = $('#km');
-    const checkKm = () => { const v = Number(kmIn.value); const w = $('#km-warn'); if (lp && lp.km !== '' && v && v < Number(lp.km)) { w.textContent = t('kmWarn', { km: lp.km }); w.classList.remove('hidden'); } else w.classList.add('hidden'); };
+    const refKm = Math.max(lp && lp.km !== '' ? Number(lp.km) || 0 : 0, Number(d.ctx && d.ctx.fahrzeug && d.ctx.fahrzeug.km) || 0);
+    const kmNiedriger = () => { const v = Number(d.km); return !!(refKm && v && v < refKm); };
+    const checkKm = () => { const w = $('#km-warn'); if (kmNiedriger()) { w.textContent = t('kmWarn', { km: refKm }); w.classList.remove('hidden'); $('#km-grund-box').classList.remove('hidden'); } else { w.classList.add('hidden'); $('#km-grund-box').classList.add('hidden'); } };
     kmIn.oninput = () => { d.km = kmIn.value; checkKm(); saveDraft(); }; checkKm();
+    $('#km-grund').oninput = e => { d.kmGrund = e.target.value; saveDraft(); };
     $('[data-photo="tacho"]').onclick = async () => { const id = await takePhoto('tacho'); if (id) { d.fotos.tacho = id; await saveDraft(); stepKm(); } };
     $$('[data-tank]').forEach(c => c.onclick = () => { d.tank = c.getAttribute('data-tank'); $$('[data-tank]').forEach(x => x.classList.toggle('on', x === c)); saveDraft(); });
     $$('[data-cond]').forEach(c => c.onclick = () => { const k = c.getAttribute('data-cond'); const i = d.bedingungen.indexOf(k); if (i >= 0) d.bedingungen.splice(i, 1); else d.bedingungen.push(k); c.classList.toggle('on'); saveDraft(); });
-    wizNav(3, () => (!d.km || !d.fotos.tacho) ? t('kmNeeded') : null);
+    wizNav(3, () => (!d.km || !d.fotos.tacho) ? t('kmNeeded') : (kmNiedriger() && String(d.kmGrund || '').trim().length < 3) ? (I18N.lang === 'en' ? 'The reading is lower than before – please correct it or give a reason.' : 'Der Kilometerstand ist niedriger als zuletzt – bitte korrigieren oder einen Grund angeben.') : null);
   }
 
   // --- Schritt 4: Rundgang-Fotos
@@ -373,16 +380,31 @@
     const d = state.draft; const n = { ansicht: view, x, y, pos3d: pos3d || null, code: '', groesse: 'mittel', text: '', localPhotoId: '' };
     const s = sheet('<h2>' + t('newDamage') + ' · ' + t(VIEW_LBL[view]) + '</h2><h3>' + t('damageCode') + '</h3><div class="chips" id="n-codes">' + Object.keys(CODES).map(c => '<button class="chip" data-code="' + c + '"><b style="font-size:18px">' + c + '</b><span class="sub">' + esc(CODES[c]) + '</span></button>').join('') + '</div>' +
       '<h3 class="mt">' + t('size') + '</h3><div class="chips three" id="n-size">' + ['klein', 'mittel', 'gross'].map(g => '<button class="chip ' + (g === 'mittel' ? 'on' : '') + '" data-size="' + g + '">' + t(g === 'gross' ? 'large' : g === 'klein' ? 'small' : 'medium') + '</button>').join('') + '</div>' +
-      '<label class="lbl">' + t('note') + '</label><input type="text" id="n-text" maxlength="120">' +
+      '<label class="lbl">' + (I18N.lang === 'en' ? 'Description (required)' : 'Beschreibung (Pflicht)') + '</label><input type="text" id="n-text" maxlength="120" placeholder="' + (I18N.lang === 'en' ? 'e.g. scratch on sliding door' : 'z. B. Kratzer an der Schiebetür') + '">' +
       '<div class="photo-grid mt" style="grid-template-columns:1fr 1fr"><div class="photo-tile req" id="n-photo"><span class="ico">📷</span><div class="cap">' + t('damagePhoto') + '</div></div></div>' +
       '<button class="btn mt" id="n-ok" disabled>' + t('addDamage') + '</button>' +
       '<button class="btn ghost mt" id="n-cancel">' + t('cancel') + ' – ' + t('backToVehicle') + '</button>');
     $('#n-cancel', s.el).onclick = () => s.close();
-    const check = () => { $('#n-ok', s.el).disabled = !(n.code && n.localPhotoId); };
+    const check = () => { $('#n-ok', s.el).disabled = !(n.code && n.localPhotoId && $('#n-text', s.el).value.trim().length >= 3); };
+    $('#n-text', s.el).oninput = check;
     $$('#n-codes .chip', s.el).forEach(c => c.onclick = () => { n.code = c.getAttribute('data-code'); $$('#n-codes .chip', s.el).forEach(x => x.classList.toggle('on', x === c)); check(); });
     $$('#n-size .chip', s.el).forEach(c => c.onclick = () => { n.groesse = c.getAttribute('data-size'); $$('#n-size .chip', s.el).forEach(x => x.classList.toggle('on', x === c)); });
     $('#n-photo', s.el).onclick = async () => { const id = await takePhoto('schaden'); if (id) { n.localPhotoId = id; const u = await thumbUrl(id); $('#n-photo', s.el).innerHTML = '<img src="' + u + '"><div class="cap">' + t('damagePhoto') + '</div>'; $('#n-photo', s.el).classList.add('done'); check(); } };
-    $('#n-ok', s.el).onclick = async () => { n.text = $('#n-text', s.el).value.trim(); d.neueSchaeden.push(n); await saveDraft(); s.close(); stepDamages(); };
+    $('#n-ok', s.el).onclick = async () => {
+      n.text = $('#n-text', s.el).value.trim();
+      if (n.text.length < 3) return toast(I18N.lang === 'en' ? 'Please describe the damage' : 'Bitte den Schaden kurz beschreiben', true);
+      // gleicher Schaden (gleiche Seite, gleiche Art, fast gleiche Stelle) schon bekannt oder schon eingetragen? -> zusammenführen statt doppelt
+      const nah = (a, ax, ay) => a.ansicht === n.ansicht && a.code === n.code && Math.hypot((Number(ax) || 0) - (Number(n.x) || 0), (Number(ay) || 0) - (Number(n.y) || 0)) <= 5;
+      const bekannt = ((d.ctx && d.ctx.offeneSchaeden) || []).find(k => nah(k, k.x, k.y));
+      if (bekannt) {
+        if (await confirmDlg(I18N.lang === 'en' ? 'This damage is already recorded at this spot. Mark it as "still there" instead of adding it twice?' : 'Dieser Schaden ist an dieser Stelle schon erfasst. Statt doppelt anlegen als „noch vorhanden“ markieren?')) {
+          const ex = d.bestaetigteSchaeden.find(x => x.schadenId === bekannt.id); if (ex) { ex.status = 'vorhanden'; ex.localPhotoId = n.localPhotoId; } else d.bestaetigteSchaeden.push({ schadenId: bekannt.id, status: 'vorhanden', localPhotoId: n.localPhotoId });
+          await saveDraft(); s.close(); stepDamages(); return;
+        }
+      }
+      if (d.neueSchaeden.find(x => nah(x, x.x, x.y))) { toast(I18N.lang === 'en' ? 'You already added this damage.' : 'Diesen Schaden hast du schon eingetragen.', true); return; }
+      d.neueSchaeden.push(n); await saveDraft(); s.close(); stepDamages();
+    };
   }
 
   // --- Schritt 6: Innenraum & Inventar
@@ -475,6 +497,7 @@
       await DB.del('outbox', d.clientId);
       state.draft = null; hideOverlay();
       state.boot = null;
+      if (zt && !zt.fahrzeugId && r.fahrzeugId) zt.fahrzeugId = r.fahrzeugId;
       if (zt) state.tourNach = zt;
       viewDone(r, zt);
     } catch (e) {

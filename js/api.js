@@ -90,7 +90,7 @@ window.API = (function () {
     const protokoll = {
       clientId: d.clientId, fahrzeugId: d.fahrzeugId || '', neuesFahrzeug: d.neuesFahrzeug || null, datum: d.datum,
       anlass: d.anlass, vonId: d.vonId, anId: d.anId, km: d.km, tank: d.tank, bedingungen: d.bedingungen || [],
-      inventar: d.inventar || {}, innenraumBeschaedigt: !!d.innenraumBeschaedigt, innenraumText: d.innenraumText || '', warnleuchten: d.warnleuchten || '', bemerkung: d.bemerkung || '',
+      inventar: d.inventar || {}, innenraumBeschaedigt: !!d.innenraumBeschaedigt, innenraumText: d.innenraumText || '', warnleuchten: d.warnleuchten || '', bemerkung: d.bemerkung || '', kmGrund: d.kmGrund || '',
       fotos: Object.keys(d.fotos || {}).map(typ => ({ typ, photoId: pid(d.fotos[typ]) })).concat((d.extraFotos || []).map(l => ({ typ: 'sonstiges', photoId: pid(l) }))).filter(f => f.photoId),
       neueSchaeden: (d.neueSchaeden || []).map(s => ({ ansicht: s.ansicht, x: s.x, y: s.y, pos3d: s.pos3d || null, code: s.code, groesse: s.groesse, text: s.text, photoId: pid(s.localPhotoId) })),
       bestaetigteSchaeden: (d.bestaetigteSchaeden || []).map(s => ({ schadenId: s.schadenId, status: s.status, photoId: pid(s.localPhotoId) })),

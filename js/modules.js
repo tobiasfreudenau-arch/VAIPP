@@ -28,6 +28,19 @@
   const nurPark = () => grp() === 'parkplatz' && !mgmt();
   const nurParkGuard = fn => (...a) => { if (nurPark()) { location.hash = '#home'; return; } return fn(...a); };
   const errMsg = e => (e && e.message) || 'Fehler';
+  // Tour von heute aus dem Startpaket – nur wenn sie wirklich von heute ist (sonst zeigte der Zwischenspeicher am nächsten Morgen noch die Tour von gestern)
+  const tourHeute = b => { const t = b && b.tourHeute; return t && t.datum === today() ? t : null; };
+  // Grund abfragen (z. B. km niedriger als letzter Stand) – gibt den Text oder null zurück
+  const askGrund = (titel, text) => new Promise(res => {
+    const s = sheet('<h2>' + esc(titel) + '</h2><p class="small">' + esc(text) + '</p><label class="lbl">' + T('Grund (Pflicht)', 'Reason (required)') + '</label><textarea id="g-txt" maxlength="300" placeholder="' + T('z. B. Tacho falsch abgelesen, anderes Fahrzeug …', 'e.g. misread, other vehicle …') + '"></textarea><button class="btn mt" id="g-ok">' + T('Mit Grund speichern', 'Save with reason') + '</button><button class="btn ghost mt" id="g-no">' + T('Zurück und km korrigieren', 'Back and correct km') + '</button>');
+    let done = false; const fin = v => { if (done) return; done = true; s.close(); res(v); };
+    $('#g-ok', s.el).onclick = () => { const v = $('#g-txt', s.el).value.trim(); if (v.length < 3) return toast(T('Bitte einen Grund eintragen', 'Please enter a reason'), true); fin(v); };
+    $('#g-no', s.el).onclick = () => fin(null);
+    const x = s.el.querySelector('.sheet-x'); if (x) x.onclick = () => fin(null);
+    s.el.addEventListener('click', e => { if (e.target === s.el) fin(null); });
+  });
+  const MODELLE = ['Mercedes Sprinter', 'VW Crafter', 'MAN TGE', 'Sonstiges'];
+  A.MODELLE = MODELLE;
 
   /* ---------- Benachrichtigung: Protokoll bestätigen ----------
    * Wenn jemand ein Protokoll erstellt hat und die andere Person (übergebend/übernehmend) nicht da war,
@@ -149,7 +162,7 @@
     const locked = !!b.gesperrt;
     if (!locked && !nurPark() && (canUps() || canPark())) html += '<div class="card gold"><h3>' + T('Heute', 'Today') + ' · ' + fmtShort(h.datum || today()) + '</h3>' + heute + (canUps() && !h.abwesenheit ? '<div class="btn-row mt">' + (!tb || tb.status !== 'beendet' ? '<button class="btn ' + (tb ? 'secondary' : '') + '" data-nav="tourstart">▶ ' + T('Tour starten', 'Start tour') + '</button>' : '') + '<button class="btn ' + (tb && tb.status === 'beendet' ? 'ghost' : 'secondary') + '" data-nav="tourende">■ ' + T('Tour beenden', 'End tour') + '</button></div>' : '') + '</div>';
     if (locked && canUps()) {
-      const th = b.tourHeute;
+      const th = tourHeute(b);
       html += '<div class="card gold"><h3>' + T('Heute', 'Today') + ' · ' + fmtShort(today()) + '</h3>' + (th && th.kmStart
         ? (th.status === 'beendet' ? '<p style="margin:0">✓ ' + T('Tour beendet', 'Tour finished') + ': <b>' + esc(th.tour || '') + '</b> · 🚐 ' + esc(th.kennzeichen || '') + '</p>'
           : '<p style="margin:0">✓ ' + T('Tour gestartet', 'Tour started') + ': <b>' + esc(th.tour || '') + '</b> · 🚐 ' + esc(th.kennzeichen || '') + ' · ' + fmtKm(th.kmStart) + ' km</p><div class="btn-row mt"><button class="btn" data-nav="tourende">■ ' + T('Tour beenden', 'End tour') + '</button><button class="btn secondary" data-nav="tourstart">' + T('Fahrzeug / km ändern', 'Change vehicle / km') + '</button></div>')
@@ -293,8 +306,8 @@
   async function viewTourStart() {
     render(topbar(T('Tour starten', 'Start tour'), { back: 'home' }) + '<main><div class="spinner"></div></main>');
     let b = await boot(); const h = (b.gesperrt ? null : await API.call('heute').catch(() => b.heute)) || {};
-    const plan = (h.plan || []).find(p => p.status === 'tour') || {}; const tb = h.tourbericht || b.tourHeute || null;
-    const fzList = (b.fahrzeuge || []).filter(v => !v.status || v.status === 'aktiv');
+    const plan = (h.plan || []).find(p => p.status === 'tour') || {}; const tb = h.tourbericht || tourHeute(b) || null;
+    let fzList = (b.fahrzeuge || []).filter(v => !v.status || v.status === 'aktiv');
     const vorFz = (tb && (tb.fahrzeugId || tb.kennzeichenIst || tb.kennzeichen)) || plan.kennzeichen || '';
     const findFz = x => fzList.find(v => v.id === x || norm(v.kennzeichen) === norm(x));
     const nach = state.tourNach || null; state.tourNach = null;
@@ -329,7 +342,8 @@
       const chips = fzList.filter(v => !f || norm(v.kennzeichen).indexOf(f) >= 0).map(v => '<button class="chip ' + (sel.fz && sel.fz.id === v.id ? 'on' : '') + '" data-fz="' + esc(v.id) + '">' + esc(v.kennzeichen) + '</button>').join('');
       html += card('1 · ' + T('Fahrzeug wählen', 'Choose vehicle'), (plan.kennzeichen ? '<p class="small muted">' + T('Laut Dienstplan', 'Per schedule') + ': <b>' + esc(plan.kennzeichen) + '</b></p>' : '') +
         (fzList.length > 12 ? '<input type="search" id="fzf" value="' + esc(sel.filter) + '" placeholder="' + T('Kennzeichen suchen …', 'Search plate …') + '" autocapitalize="characters">' : '') +
-        '<div class="chips mt" style="grid-template-columns:repeat(auto-fill,minmax(104px,1fr))">' + (chips || '<p class="small muted">' + T('Kein Fahrzeug gefunden.', 'No vehicle found.') + '</p>') + '</div>', sel.fz ? '' : 'gold');
+        '<div class="chips mt" style="grid-template-columns:repeat(auto-fill,minmax(104px,1fr))">' + (chips || '<p class="small muted">' + T('Kein Fahrzeug gefunden.', 'No vehicle found.') + '</p>') + '</div>' +
+        '<button type="button" class="btn small secondary mt" id="fzneu">＋ ' + T('Kennzeichen nicht dabei? Neu anlegen', 'Plate missing? Add new') + '</button>', sel.fz ? '' : 'gold');
       const fehlt = protokollFehlt(sel.fz);
       if (fehlt) html += card('2 · ' + T('Übergabeprotokoll (Pflicht)', 'Handover protocol (required)'), '<p style="margin:0 0 6px">🔁 <b>' + esc(sel.fz.kennzeichen) + '</b> ' + T('ist dir noch nicht zugeordnet', 'is not assigned to you yet') + (sel.fz.fahrer ? ' (' + T('zuletzt', 'last') + ': ' + esc(sel.fz.fahrer) + ')' : '') + '.</p><p class="small muted" style="margin:0 0 10px">' + T('Bevor du losfährst, mach bitte das Übergabeprotokoll – danach geht es automatisch hier weiter.', 'Before you drive off, please complete the handover protocol – you will be brought back here afterwards.') + '</p><button class="btn" id="doprot">📋 ' + T('Übergabeprotokoll jetzt machen', 'Do handover protocol now') + '</button>', 'danger');
       else html += card('2 · ' + T('Kilometerstand (Pflicht)', 'Odometer (required)'), sel.fz ? kmFoto(km, 'ks') + '<div id="kminfo"></div>'
@@ -342,20 +356,50 @@
       $$('[data-tour]').forEach(c => c.onclick = () => { sel.tour = c.getAttribute('data-tour'); draw(); });
       if ($('#fzf')) $('#fzf').oninput = e => { sel.filter = e.target.value; const pos = e.target.selectionStart; draw(); const n = $('#fzf'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (x) { } };
       if ($('#doprot')) $('#doprot').onclick = () => A.startDraft({ fahrzeugId: sel.fz.id, zurTour: true });
+      $('#fzneu').onclick = neuesFahrzeug;
       bindKmFoto(km, 'ks', () => sel.fz && sel.fz.id, draw);
       bindYn(chk, draw);
       drawInfo(); if (!fehlt) loadInfo();
       $('#ok').onclick = () => send(false);
     };
-    const send = async bestaetigt => {
+    // Neues Kennzeichen direkt beim Tourstart anlegen – danach ist das Übergabeprotokoll Pflicht (Firma/Hof → Fahrer)
+    const neuesFahrzeug = () => {
+      const s = sheet('<h2>' + T('Neues Fahrzeug', 'New vehicle') + '</h2><p class="small muted">' + T('Nur anlegen, wenn das Kennzeichen oben wirklich fehlt. Bitte genau vom Fahrzeug abschreiben.', 'Only if the plate is really missing above. Copy it exactly from the vehicle.') + '</p>' +
+        '<label class="lbl">' + A.t('plate') + '</label><input type="text" id="nf-plate" placeholder="DZ-XX 123" autocapitalize="characters" autocomplete="off">' +
+        '<label class="lbl">' + A.t('model') + '</label><select id="nf-model"><option value="">' + T('– bitte wählen –', '– please choose –') + '</option>' + MODELLE.map(m => '<option>' + esc(m) + '</option>').join('') + '</select>' +
+        '<button class="btn mt" id="nf-ok">' + T('Fahrzeug anlegen', 'Add vehicle') + '</button>');
+      const anlegen = async trotzdem => {
+        const plate = $('#nf-plate', s.el).value.trim(), modell = $('#nf-model', s.el).value;
+        if (plate.replace(/[^A-Za-z0-9]/g, '').length < 4) return toast(T('Bitte das Kennzeichen eintragen', 'Enter the plate'), true);
+        if (!modell) return toast(T('Bitte das Fahrzeugmodell wählen', 'Choose the model'), true);
+        const ex = fzList.find(v => norm(v.kennzeichen) === norm(plate));
+        if (ex) { s.close(); sel.fz = ex; draw(); return; }
+        overlay('…');
+        try {
+          const v = await API.call('createVehicle', { kennzeichen: plate, modell, trotzdem: !!trotzdem });
+          hideOverlay(); s.close(); state.boot = null; b = await boot(true);
+          fzList = (b.fahrzeuge || []).filter(x => !x.status || x.status === 'aktiv');
+          sel.fz = fzList.find(x => x.id === v.id) || Object.assign({ fahrerId: '' }, v); sel.filter = '';
+          Object.assign(km, { km: '', fotoId: '', fotoUrl: '', ocr: null, manuell: false });
+          toast('✓ ' + esc(v.kennzeichen) + ' ' + T('angelegt – jetzt das Übergabeprotokoll machen', 'added – now do the handover protocol'));
+          draw();
+        } catch (e) {
+          hideOverlay();
+          if (e.code === 'PLATE_SIMILAR' && await confirmDlg(errMsg(e) + '\n\n' + T('Trotzdem neu anlegen?', 'Add anyway?'))) return anlegen(true);
+          if (e.code !== 'PLATE_SIMILAR') toast(errMsg(e), true);
+        }
+      };
+      $('#nf-ok', s.el).onclick = () => anlegen(false);
+    };
+    const send = async (bestaetigt, kmGrund) => {
       if (!sel.fz) return toast(T('Bitte zuerst das Fahrzeug auswählen', 'Choose the vehicle first'), true);
       if (protokollFehlt(sel.fz)) return toast(T('Bitte zuerst das Übergabeprotokoll machen', 'Please complete the handover protocol first'), true);
-      if (!bestaetigt && !(await kmFotoPruefen(km))) return;
+      if (!bestaetigt && !kmGrund && !(await kmFotoPruefen(km))) return;
       if (!sel.tour) return toast(T('Bitte Tour wählen', 'Choose a tour'), true);
       if (!chk.warnweste || !chk.schuhe || !chk.uniform) return toast(T('Bitte den Sicherheits-Check beantworten', 'Please answer the safety check'), true);
       overlay('…');
       try {
-        const r = await API.call('startTour', { tour: sel.tour, kennzeichen: sel.fz.kennzeichen, fahrzeugId: sel.fz.id, kmStart: Number(km.km), kmFotoId: km.fotoId, kmBestaetigt: bestaetigt, protokollAusstehend: ausstehend.indexOf(sel.fz.id) >= 0,
+        const r = await API.call('startTour', { tour: sel.tour, kennzeichen: sel.fz.kennzeichen, fahrzeugId: sel.fz.id, kmStart: Number(km.km), kmFotoId: km.fotoId, kmBestaetigt: bestaetigt, kmGrund: kmGrund || '', protokollAusstehend: ausstehend.indexOf(sel.fz.id) >= 0,
           warnweste: chk.warnweste, warnwesteGrund: chk.warnwesteGrund || '', schuhe: chk.schuhe, schuheGrund: chk.schuheGrund || '', uniform: chk.uniform, uniformGrund: chk.uniformGrund || '' }, { timeout: 90000 });
         hideOverlay(); state.boot = null;
         const warn = kmHinweisMa(r && r.km);
@@ -363,8 +407,13 @@
         else { toast('✓ ' + T('Gute Fahrt!', 'Safe trip!')); go('home'); }
       } catch (e) {
         hideOverlay();
-        if ((e.code === 'KM_LOW' || e.code === 'KM_HIGH') && !bestaetigt) {
-          if (await confirmDlg(e.message + '\n\n' + T('Ist der Kilometerstand ' + fmtKm(km.km) + ' trotzdem richtig?', 'Is ' + fmtKm(km.km) + ' still correct?'))) return send(true);
+        if (e.code === 'KM_LOW' && !kmGrund) {
+          const g = await askGrund(T('Kilometer niedriger als zuletzt', 'Odometer lower than before'), e.message);
+          if (g) return send(bestaetigt, g);
+          return;
+        }
+        if (e.code === 'KM_HIGH' && !bestaetigt) {
+          if (await confirmDlg(e.message + '\n\n' + T('Ist der Kilometerstand ' + fmtKm(km.km) + ' trotzdem richtig?', 'Is ' + fmtKm(km.km) + ' still correct?'))) return send(true, kmGrund);
           return;
         }
         if (e.code === 'PROTOKOLL_NOETIG') { sel.fz = Object.assign({}, sel.fz, { fahrerId: '' }); draw(); }
@@ -415,7 +464,7 @@
   async function viewTourEnd() {
     render(topbar(T('Tour beenden', 'End tour'), { back: 'home' }) + '<main><div class="spinner"></div></main>');
     const b = await boot(); const h = (b.gesperrt ? null : await API.call('heute').catch(() => b.heute)) || {};
-    const plan = (h.plan || []).find(p => p.status === 'tour') || {}; const tb = h.tourbericht || b.tourHeute || {};
+    const plan = (h.plan || []).find(p => p.status === 'tour') || {}; const tb = h.tourbericht || tourHeute(b) || {};
     const fz = (b.fahrzeuge || []).find(v => v.id === tb.fahrzeugId) || null;
     const f = { tour: tb.tourIst || tb.tour || plan.tour || '', kz: tb.kennzeichenIst || tb.kennzeichen || plan.kennzeichen || '', stopps: '', nachnahme: '', bemerkung: '' };
     const km = { km: '', fotoId: '', fotoUrl: '', ocr: null };
@@ -460,7 +509,11 @@
             (f.neueSchaeden === 'ja' && v ? '<button class="btn" id="np">📋 ' + T('Schaden jetzt mit Protokoll dokumentieren', 'Document damage with a protocol now') + '</button>' : '') + '<button class="btn ghost mt" data-nav="home">' + A.t('home') + '</button></main>');
           if ($('#np')) $('#np').onclick = () => A.startDraft({ fahrzeugId: v.id });
           return true;
-        } catch (e) { hideOverlay(); toast(errMsg(e), true); return false; }
+        } catch (e) {
+          hideOverlay();
+          if (e.code === 'KM_LOW' && !(extra && extra.kmGrund)) { const g = await askGrund(T('Kilometer niedriger als zuletzt', 'Odometer lower than before'), e.message); if (g) return senden(Object.assign({}, extra || {}, { kmGrund: g })); return false; }
+          toast(errMsg(e), true); return false;
+        }
       };
       if (betrag > 0) nachnahmeFahrerSheet(betrag, sig => senden({ sigFahrer: sig }));
       else senden();
@@ -504,14 +557,14 @@
     const s = b.summe;
     let html = topbar(T('Tagesbericht', 'Daily report'), { back: 'home' }) + '<main><div class="row"><button class="btn small ghost" data-nav="tagesbericht/' + addDays(datum, -1) + '">‹</button><div class="grow center"><b>' + fmtShort(datum) + '</b></div><button class="btn small ghost" data-nav="tagesbericht/' + addDays(datum, 1) + '">›</button></div>';
     html += '<div class="kpi mt"><div class="card"><div class="num">' + s.beendet + '/' + s.touren + '</div><div class="lbl">' + T('gemeldet', 'reported') + '</div></div><div class="card"><div class="num ' + (s.fehlt ? 'danger' : '') + '">' + s.fehlt + '</div><div class="lbl">' + T('ohne Meldung', 'missing') + '</div></div><div class="card"><div class="num ' + (s.abweichungen ? 'danger' : '') + '">' + s.abweichungen + '</div><div class="lbl">' + T('Abweichungen', 'Deviations') + '</div></div><div class="card"><div class="num ' + (s.neueSchaeden ? 'danger' : '') + '">' + s.neueSchaeden + '</div><div class="lbl">' + T('neue Schäden', 'new damages') + '</div></div></div>';
-    if (!b.planVorhanden) html += '<div class="card danger mt">' + T('Für diesen Tag wurde keine DPL-Datei eingelesen.', 'No DPL file imported for this day.') + ' <button class="btn small secondary" id="imp">' + T('Jetzt einlesen', 'Import now') + '</button></div>';
+    if (b.dienstplanAktiv && !b.planVorhanden) html += '<div class="card danger mt">' + T('Für diesen Tag wurde keine DPL-Datei eingelesen.', 'No DPL file imported for this day.') + ' <button class="btn small secondary" id="imp">' + T('Jetzt einlesen', 'Import now') + '</button></div>';
     html += '<div class="card mt"><h3>' + T('Touren', 'Tours') + '</h3>' + (b.zeilen.map(z => { const r = z.bericht || {}; return '<div style="padding:8px 0;border-bottom:1px solid var(--line)"><div class="row"><span class="badge">' + esc(z.tour) + '</span><b class="grow">' + esc(z.fahrer) + '</b><span class="badge ' + (z.status === 'beendet' ? 'green' : z.status === 'gestartet' ? '' : 'red') + '">' + (z.status === 'fehlt' ? T('keine Meldung', 'missing') : esc(z.status)) + '</span></div><div class="small muted">' + esc(r.kennzeichenIst || z.kennzeichenPlan || '–') + ' · ' + esc(r.startIst || z.startPlan || '–') + (r.endeIst ? '–' + esc(r.endeIst) : '') + (r.kmEnde ? ' · ' + esc(r.kmEnde) + ' km' : '') + (r.sauber === 'nein' ? ' · <span class="danger">nicht sauber</span>' : '') + (r.neueSchaeden === 'ja' ? ' · <span class="danger">Schaden: ' + esc(r.schadenHinweis || '') + '</span>' : '') + (r.fahrtenbuch === 'nein' ? ' · <span class="danger">kein Fahrtenbuch</span>' : '') + (r.tankenLiter ? ' · ⛽ ' + esc(r.tankenLiter) + ' l' : '') + '</div>' + (r.abweichungen && r.abweichungen.length ? '<div class="small danger">' + r.abweichungen.map(esc).join('<br>') + '</div>' : '') + (r.bemerkung ? '<div class="small muted">„' + esc(r.bemerkung) + '“</div>' : '') + '</div>'; }).join('') || '<p class="muted small">–</p>') + '</div>';
     if (b.abwesend.length) html += card(T('Abwesend', 'Absent'), b.abwesend.map(a => '<span class="badge grey" style="margin:2px">' + esc(a.name) + ' · ' + esc(a.typText) + '</span>').join(''));
     if (b.parkplatz.length) html += card('Parkplatz', b.parkplatz.map(p => '<span class="badge grey" style="margin:2px">' + esc(p.name) + ': ' + esc(p.code || p.status) + '</span>').join(''));
-    html += '<div class="card"><div class="row wrap"><button class="btn small secondary" id="send">✉︎ ' + T('Bericht jetzt mailen', 'Mail report now') + '</button><button class="btn small ghost" id="imp2">↻ DPL ' + T('einlesen', 'import') + '</button></div></div></main>';
+    html += '<div class="card"><div class="row wrap"><button class="btn small secondary" id="send">✉︎ ' + T('Bericht jetzt mailen', 'Mail report now') + '</button>' + (b.dienstplanAktiv ? '<button class="btn small ghost" id="imp2">↻ DPL ' + T('einlesen', 'import') + '</button>' : '') + '</div></div></main>';
     render(html);
     const imp = async () => { overlay('…'); try { const r = await API.call('importDienstplan', {}); hideOverlay(); toast((Array.isArray(r) ? r.length : 0) + ' ' + T('Datei(en) eingelesen', 'file(s) imported')); viewTagesbericht(datum); } catch (e) { hideOverlay(); toast(errMsg(e), true); } };
-    if ($('#imp')) $('#imp').onclick = imp; $('#imp2').onclick = imp;
+    if ($('#imp')) $('#imp').onclick = imp; if ($('#imp2')) $('#imp2').onclick = imp;
     $('#send').onclick = async () => { overlay('…'); try { const r = await API.call('sendTagesbericht', { datum }); hideOverlay(); toast('✓ ' + r.gesendetAn.length + ' Empfänger'); } catch (e) { hideOverlay(); toast(errMsg(e), true); } };
   }
 
@@ -646,14 +699,15 @@
     try { st = await API.call('getSettings'); imp = await API.call('importStatus'); konten = await API.call('adminVacationAccounts', { jahr }); } catch (e) { toast(errMsg(e), true); }
     let html = topbar(T('Verwaltung', 'Admin'), { back: 'home' }) + '<main>';
     html += card(T('Regeln & Einstellungen', 'Rules & settings'), st.map(s => '<label class="lbl">' + esc(s.beschreibung || s.key) + '</label><input type="text" data-k="' + esc(s.key) + '" value="' + esc(s.wert) + '">').join('') + '<button class="btn secondary mt" id="s-save">' + A.t('save') + '</button>');
-    html += card(T('Dienstplan-Import', 'Schedule import'), '<p class="small muted">' + T('Dateien „DPL tt.mm.jj.xlsx“ (Tagespläne) und optional „Schichtplan ….xlsx“ in den Drive-Ordner legen. Einlesen läuft stündlich automatisch.', 'Put “DPL dd.mm.yy.xlsx” files (and optional “Schichtplan …xlsx”) into the Drive folder. Import runs hourly.') + '</p><div class="row wrap"><a class="btn small ghost" style="display:inline-flex" href="' + esc(imp.ordner) + '" target="_blank">' + T('Ordner öffnen', 'Open folder') + '</a><button class="btn small secondary" id="imp-now">↻ ' + T('Jetzt einlesen', 'Import now') + '</button><button class="btn small ghost" id="imp-all">' + T('Alles neu einlesen', 'Re-import all') + '</button></div>' + (imp.importe.length ? '<table class="tbl mt"><tr><th>Datei</th><th>Zeilen</th><th>Nicht zugeordnet</th></tr>' + imp.importe.map(i => '<tr><td>' + esc(i.name) + '<br><span class="small muted">' + fmtDT(i.importiert_am) + '</span>' + (i.fehler ? '<br><span class="small danger">' + esc(i.fehler) + '</span>' : '') + '</td><td>' + esc(i.zeilen) + '</td><td class="small danger">' + esc(i.nicht_zugeordnet || '') + '</td></tr>').join('') + '</table>' : '<p class="small muted mt">' + T('Noch nichts eingelesen.', 'Nothing imported yet.') + '</p>'));
+    if (imp.aktiv === false) html += card(T('Dienstplan-Import', 'Schedule import'), '<p class="small muted" style="margin:0">' + T('Zurzeit abgeschaltet. Zum Einschalten oben bei „dienstplan_aktiv“ ja eintragen.', 'Currently switched off.') + '</p>');
+    else html += card(T('Dienstplan-Import', 'Schedule import'), '<p class="small muted">' + T('Dateien „DPL tt.mm.jj.xlsx“ (Tagespläne) und optional „Schichtplan ….xlsx“ in den Drive-Ordner legen. Einlesen läuft stündlich automatisch.', 'Put “DPL dd.mm.yy.xlsx” files (and optional “Schichtplan …xlsx”) into the Drive folder. Import runs hourly.') + '</p><div class="row wrap"><a class="btn small ghost" style="display:inline-flex" href="' + esc(imp.ordner) + '" target="_blank">' + T('Ordner öffnen', 'Open folder') + '</a><button class="btn small secondary" id="imp-now">↻ ' + T('Jetzt einlesen', 'Import now') + '</button><button class="btn small ghost" id="imp-all">' + T('Alles neu einlesen', 'Re-import all') + '</button></div>' + (imp.importe.length ? '<table class="tbl mt"><tr><th>Datei</th><th>Zeilen</th><th>Nicht zugeordnet</th></tr>' + imp.importe.map(i => '<tr><td>' + esc(i.name) + '<br><span class="small muted">' + fmtDT(i.importiert_am) + '</span>' + (i.fehler ? '<br><span class="small danger">' + esc(i.fehler) + '</span>' : '') + '</td><td>' + esc(i.zeilen) + '</td><td class="small danger">' + esc(i.nicht_zugeordnet || '') + '</td></tr>').join('') + '</table>' : '<p class="small muted mt">' + T('Noch nichts eingelesen.', 'Nothing imported yet.') + '</p>'));
     html += card(T('Urlaubskonten', 'Vacation accounts') + ' ' + jahr, '<table class="tbl"><tr><th>Name</th><th>' + T('Anspruch', 'Entitlement') + '</th><th>' + T('Übertrag', 'Carry-over') + '</th><th>' + T('Rest', 'Left') + '</th></tr>' + konten.map(k => '<tr><td>' + esc(k.name) + '</td><td><input type="number" data-anspruch="' + k.userId + '" value="' + (k.gepflegt ? k.anspruch : '') + '" style="min-height:38px;padding:4px 8px;width:70px"></td><td><input type="number" data-uebertrag="' + k.userId + '" value="' + (k.gepflegt ? k.uebertrag : '') + '" style="min-height:38px;padding:4px 8px;width:70px"></td><td>' + (k.gepflegt ? k.rest : '–') + '</td></tr>').join('') + '</table><button class="btn secondary mt" id="k-save">' + T('Konten speichern', 'Save accounts') + '</button>');
     html += card(T('Touren', 'Tours'), '<button class="btn small secondary" id="t-edit">' + T('Touren bearbeiten', 'Edit tours') + '</button>');
     html += '</main>';
     render(html);
     $('#s-save').onclick = async () => { const werte = {}; $$('[data-k]').forEach(i => werte[i.getAttribute('data-k')] = i.value); overlay('…'); try { await API.call('setSettings', { werte }); hideOverlay(); toast('✓'); } catch (e) { hideOverlay(); toast(errMsg(e), true); } };
     const doImp = async alle => { overlay('…'); try { const r = await API.call('importDienstplan', { alle }); hideOverlay(); toast((Array.isArray(r) ? r.length : 0) + ' Datei(en)'); viewEinstellungen(); } catch (e) { hideOverlay(); toast(errMsg(e), true); } };
-    $('#imp-now').onclick = () => doImp(false); $('#imp-all').onclick = () => doImp(true);
+    if ($('#imp-now')) { $('#imp-now').onclick = () => doImp(false); $('#imp-all').onclick = () => doImp(true); }
     $('#k-save').onclick = async () => { overlay('…'); try { for (const k of konten) { const a = $('[data-anspruch="' + k.userId + '"]').value, ue = $('[data-uebertrag="' + k.userId + '"]').value; if (a === '' && ue === '') continue; if (k.gepflegt && Number(a) === k.anspruch && Number(ue) === k.uebertrag) continue; await API.call('adminSetVacationAccount', { userId: k.userId, jahr, anspruch: a, uebertrag: ue }); } hideOverlay(); toast('✓'); viewEinstellungen(); } catch (e) { hideOverlay(); toast(errMsg(e), true); } };
     $('#t-edit').onclick = async () => { const tours = await API.call('listTours'); const s = sheet('<h2>Touren</h2>' + tours.map(t => '<div class="row" style="padding:4px 0"><b style="width:60px">' + esc(t.code) + '</b><input type="text" data-tg="' + esc(t.code) + '" value="' + esc(t.gebiet) + '" style="min-height:38px;padding:4px 8px"><input type="text" data-ts="' + esc(t.code) + '" value="' + esc(t.start) + '" style="min-height:38px;padding:4px 8px;width:70px"></div>').join('') + '<div class="row mt"><input type="text" id="t-new" placeholder="Neuer Code, z. B. C28" style="min-height:38px"><button class="btn small secondary" id="t-add">＋</button></div><button class="btn mt" id="t-ok">' + A.t('save') + '</button>'); $('#t-ok', s.el).onclick = async () => { overlay('…'); try { for (const t of tours) { const g = $('[data-tg="' + t.code + '"]', s.el).value, st2 = $('[data-ts="' + t.code + '"]', s.el).value; if (g !== t.gebiet || st2 !== t.start) await API.call('upsertTour', { code: t.code, gebiet: g, start: st2 }); } hideOverlay(); s.close(); toast('✓'); state.boot = null; } catch (e) { hideOverlay(); toast(errMsg(e), true); } }; $('#t-add', s.el).onclick = async () => { const c = $('#t-new', s.el).value.trim(); if (!c) return; try { await API.call('upsertTour', { code: c }); s.close(); toast('✓'); state.boot = null; $('#t-edit').click(); } catch (e) { toast(errMsg(e), true); } }; };
   }
