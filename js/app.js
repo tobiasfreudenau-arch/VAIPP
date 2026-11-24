@@ -8,8 +8,8 @@
   const fmtDT = iso => { if (!iso) return ''; const d = new Date(iso); if (isNaN(d)) return String(iso); return fmtD(iso) + ' ' + d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }); };
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16); }));
   const CODES = { B: 'Beule', D: 'Delle', F: 'Fehlt', G: 'Gebrochen', K: 'Kratzer', R: 'Rost', S: 'Steinschlag', T: 'Techn. Mangel', U: 'Undicht', V: 'Verformung', X: 'Bruch/Riss', A: 'Unfall' };
-  const INVENTAR = [['schluessel', 'Schlüssel', 1], ['kfz_schein', 'KFZ-Schein', 1], ['reserverad', 'Reserverad', 0], ['tuev_bericht', 'TÜV/AU-Bericht', 0], ['warnweste', 'Warnweste', 1], ['warndreieck', 'Warndreieck', 1], ['verbandskasten', 'Verbandskasten', 1], ['sicherungsnetz', 'Sicherungsnetz', 0], ['sicherungsstange', 'Sicherungsstange', 0], ['steckbolzen', 'Steckbolzen', 0], ['kamera_laderaum', 'Kamera Laderaum', 0], ['kamera_dashcam', 'Kamera Dashcam', 0], ['navi', 'Navi', 0]];
-  const ANLAESSE = ['wechsel', 'urlaub', 'krank', 'feierabend', 'werkstatt', 'rueckgabe', 'uebernahme', 'sonstiges'];
+  const INVENTAR = [['schluessel', 'Schlüssel', 1], ['kfz_schein', 'KFZ-Schein', 1], ['reserverad', 'Reserverad', 0], ['tuev_bericht', 'TÜV/AU-Bericht', 0], ['warnweste', 'Warnweste', 1], ['warndreieck', 'Warndreieck', 1], ['verbandskasten', 'Verbandskasten', 1], ['sicherungsnetz', 'Sicherungsnetz', 0], ['sicherungsstange', 'Sicherungsstange', 0], ['steckbolzen', 'Steckbolzen', 0]]; // Kamera Laderaum, Dashcam und Navi seit 1.7.5 nicht mehr abgefragt
+  const ANLAESSE = ['wechsel', 'urlaub', 'feierabend', 'werkstatt', 'rueckgabe', 'uebernahme', 'sonstiges']; // „Krankheit“ seit 1.7.5 nicht mehr wählbar (Text bleibt für alte Protokolle)
   const ANLASS_TXT = { wechsel: 'Fahrzeugwechsel', urlaub: 'Urlaub', krank: 'Krankheit', feierabend: 'Feierabend / Abstellen', werkstatt: 'Werkstatt', rueckgabe: 'Rückgabe an Firma', uebernahme: 'Übernahme von Firma', sonstiges: 'Sonstiges' };
   const PHOTO_REQ = ['front', 'heck', 'links', 'rechts', 'laderaum', 'cockpit'];
   const PHOTO_LBL = { front: 'front', heck: 'rear', links: 'left', rechts: 'right', laderaum: 'cargo', cockpit: 'cockpit', tacho: 'kmPhoto' };
@@ -221,7 +221,7 @@
     if (lp && lp.anId && lp.anId !== state.user.id) { d.vonId = lp.anId; d.anId = state.user.id; }
     else if (lp && lp.anId === state.user.id) { d.vonId = state.user.id; d.anId = ''; }
     else { d.vonId = 'firma'; d.anId = state.user.id; }
-    if (lp && lp.inventar) { d.inventar = {}; Object.keys(lp.inventar).forEach(k => { d.inventar[k] = { soll: lp.inventar[k].soll, haben: lp.inventar[k].soll, nr: lp.inventar[k].nr || '' }; }); }
+    if (lp && lp.inventar) { d.inventar = {}; Object.keys(lp.inventar).filter(k => INVENTAR.some(it => it[0] === k)).forEach(k => { d.inventar[k] = { soll: lp.inventar[k].soll, haben: lp.inventar[k].soll, nr: lp.inventar[k].nr || '' }; }); }
     d.bestaetigteSchaeden = [];
     d.step = 2; await saveDraft(); viewWizard();
   }
@@ -414,14 +414,13 @@
     const inv = INVENTAR.map(it => { const e = d.inventar[it[0]]; const miss = Number(e.haben) < Number(e.soll); return '<div class="inv-row ' + (miss ? 'missing' : '') + '"><div class="name">' + esc(it[1]) + '<span>' + t('target') + ' ' + esc(e.soll) + (it[0] === 'navi' && e.nr ? ' · Nr. ' + esc(e.nr) : '') + '</span></div><div class="stepper"><button data-inv="' + it[0] + '" data-d="-1">−</button><div class="val">' + esc(e.haben) + '</div><button data-inv="' + it[0] + '" data-d="1">＋</button></div></div>'; }).join('');
     const body = '<div class="card"><h3>' + t('interiorDamaged') + '</h3><div class="chips two"><button class="chip ' + (!d.innenraumBeschaedigt ? 'on' : '') + '" data-int="0">' + t('no') + '</button><button class="chip red ' + (d.innenraumBeschaedigt ? 'on' : '') + '" data-int="1">' + t('yes') + '</button></div><div id="int-text" class="' + (d.innenraumBeschaedigt ? '' : 'hidden') + '"><label class="lbl">' + t('where') + '</label><input type="text" id="i-text" value="' + esc(d.innenraumText) + '"></div></div>' +
       '<div class="card"><h3>' + t('warnLights') + '</h3><div class="chips two"><button class="chip ' + (!d.warnleuchtenJa ? 'on' : '') + '" data-wl="0">' + t('none') + '</button><button class="chip red ' + (d.warnleuchtenJa ? 'on' : '') + '" data-wl="1">' + t('yes') + '</button></div><div id="wl-text" class="' + (d.warnleuchtenJa ? '' : 'hidden') + '"><label class="lbl">' + t('which') + '</label><input type="text" id="w-text" value="' + esc(d.warnleuchten) + '" placeholder="z. B. Motorkontrollleuchte, AdBlue"></div></div>' +
-      '<div class="card"><h3>' + t('inventory') + ' (' + t('target') + ' / ' + t('actual') + ')</h3>' + inv + '<label class="lbl">' + t('naviNr') + '</label><input type="text" id="navi-nr" value="' + esc(d.inventar.navi.nr || '') + '"></div>' +
+      '<div class="card"><h3>' + t('inventory') + ' (' + t('target') + ' / ' + t('actual') + ')</h3>' + inv + '</div>' +
       '<div class="card"><label class="lbl">' + t('remark') + '</label><textarea id="bem">' + esc(d.bemerkung) + '</textarea></div>';
     render(wizardShell(6, body));
     $$('[data-int]').forEach(c => c.onclick = () => { d.innenraumBeschaedigt = c.getAttribute('data-int') === '1'; saveDraft(); stepInterior(); });
     $$('[data-wl]').forEach(c => c.onclick = () => { d.warnleuchtenJa = c.getAttribute('data-wl') === '1'; if (!d.warnleuchtenJa) d.warnleuchten = ''; saveDraft(); stepInterior(); });
     $('#i-text').oninput = e => { d.innenraumText = e.target.value; saveDraft(); };
     $('#w-text').oninput = e => { d.warnleuchten = e.target.value; saveDraft(); };
-    $('#navi-nr').oninput = e => { d.inventar.navi.nr = e.target.value; saveDraft(); };
     $('#bem').oninput = e => { d.bemerkung = e.target.value; saveDraft(); };
     $$('[data-inv]').forEach(b => b.onclick = () => { const k = b.getAttribute('data-inv'); const e = d.inventar[k]; e.haben = Math.max(0, Math.min(9, Number(e.haben) + Number(b.getAttribute('data-d')))); if (e.haben > e.soll) e.soll = e.haben; saveDraft(); stepInterior(); });
     wizNav(6, () => (d.innenraumBeschaedigt && !d.innenraumText.trim()) ? t('where') : (d.warnleuchtenJa && !d.warnleuchten.trim()) ? t('which') : null);
