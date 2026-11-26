@@ -273,9 +273,12 @@
   };
   // Hinweis für Fahrer: Geld übergeben – der Empfänger bestätigt in SEINER App
   const nnHinweis = () => '<p class="small muted" style="margin:6px 0 0">' + T('Beim Absenden unterschreibst du. Gib das Geld an ' + (((state.boot && state.boot.nachnahmeEmpfaengerListe) || []).map(x => x.split(' ')[0]).join(', ') || 'Tobias') + ' – der Empfänger bestätigt den Betrag in seiner App und unterschreibt gegen.', 'You sign when submitting. Hand the cash to ' + (((state.boot && state.boot.nachnahmeEmpfaengerListe) || []).map(x => x.split(' ')[0]).join(', ') || 'Tobias') + ' – the receiver confirms the amount in their app and countersigns.') + '</p>';
+  const nnEcHinweis = () => '<p class="small muted" style="margin:6px 0 0">💳 ' + T('EC-Nachnahmen gehen direkt an UPS – dafür musst du kein Geld abgeben.', 'Card (EC) payments go directly to UPS – no cash to hand over.') + '</p>';
+  const nnZahl = v => Number(String(v === undefined || v === null ? '' : v).replace(',', '.'));
+  const nnSumme = (liste, art) => Math.round(liste.filter(p => p.art === art).reduce((a, p) => a + (nnZahl(p.betrag) > 0 ? nnZahl(p.betrag) : 0), 0) * 100) / 100;
   // Fahrer unterschreibt die Nachnahme auf seinem eigenen Handy (beim Tourende)
   function nachnahmeFahrerSheet(betrag, onSign) {
-    const s = sheet('<h3>💶 ' + T('Nachnahme unterschreiben', 'Sign cash on delivery') + '</h3><p style="font-size:28px;margin:4px 0 6px"><b>' + fmtEur(betrag) + '</b></p><p class="small muted" style="margin:0 0 8px">' + T('Mit deiner Unterschrift bestätigst du diesen Betrag. Danach übergibst du das Geld – der Empfänger zeichnet in seiner App gegen.', 'With your signature you confirm this amount. Then hand over the cash – the receiver countersigns in their app.') + '</p>' +
+    const s = sheet('<h3>💶 ' + T('Bar-Nachnahme unterschreiben', 'Sign cash on delivery') + '</h3><p style="font-size:28px;margin:4px 0 6px"><b>' + fmtEur(betrag) + '</b></p><p class="small muted" style="margin:0 0 8px">' + T('Mit deiner Unterschrift bestätigst du diesen Betrag. Danach übergibst du das Geld – der Empfänger zeichnet in seiner App gegen.', 'With your signature you confirm this amount. Then hand over the cash – the receiver countersigns in their app.') + '</p>' +
       '<label class="lbl">' + T('Deine Unterschrift', 'Your signature') + '</label><div class="sig-box" id="nn-sf"></div><button type="button" class="btn ghost" id="nn-cf" style="min-height:36px">' + T('Löschen', 'Clear') + '</button>' +
       '<button class="btn mt" id="nn-ok">✓ ' + T('Unterschreiben & Tour melden', 'Sign & report tour') + '</button>');
     const pf = SIG($('#nn-sf', s.el), {});
@@ -466,36 +469,45 @@
     const b = await boot(); const h = (b.gesperrt ? null : await API.call('heute').catch(() => b.heute)) || {};
     const plan = (h.plan || []).find(p => p.status === 'tour') || {}; const tb = h.tourbericht || tourHeute(b) || {};
     const fz = (b.fahrzeuge || []).find(v => v.id === tb.fahrzeugId) || null;
-    const f = { tour: tb.tourIst || tb.tour || plan.tour || '', kz: tb.kennzeichenIst || tb.kennzeichen || plan.kennzeichen || '', stopps: '', nachnahme: '', bemerkung: '' };
+    const f = { tour: tb.tourIst || tb.tour || plan.tour || '', kz: tb.kennzeichenIst || tb.kennzeichen || plan.kennzeichen || '', stopps: '', nnKeine: false, nn: [{ betrag: '', art: 'bar' }], bemerkung: '' };
     const km = { km: '', fotoId: '', fotoUrl: '', ocr: null };
+    const nnHint = () => (nnSumme(f.nn, 'bar') > 0 ? nnHinweis() : '') + (nnSumme(f.nn, 'ec') > 0 ? nnEcHinweis() : '');
     const draw = () => {
       const y = window.scrollY;
       let html = topbar(T('Tour beenden', 'End tour'), { back: 'home' }) + '<main>';
       html += card(T('Tour & Fahrzeug', 'Tour & vehicle'), fz ? '<p style="margin:0;font-size:18px"><b>' + esc(f.tour || '–') + '</b> · 🚐 ' + esc(fz.kennzeichen) + (tb.kmStart ? '<span class="small muted"> · Start ' + fmtKm(tb.kmStart) + ' km</span>' : '') + '</p>'
         : '<div class="row"><div class="grow"><label class="lbl">Tour</label><select data-f="tour">' + (b.touren || []).map(t => '<option value="' + esc(t.code) + '" ' + (f.tour === t.code ? 'selected' : '') + '>' + esc(t.code) + '</option>').join('') + '</select></div><div class="grow"><label class="lbl">' + A.t('plate') + '</label><input type="text" data-f="kz" value="' + esc(f.kz) + '" autocapitalize="characters"></div></div>');
       html += card(T('Kilometerstand Ende (Pflicht)', 'Odometer at end (required)'), kmFoto(km, 'ke'), !km.fotoId ? 'gold' : '');
-      html += card(T('Nachnahme (Pflicht)', 'Cash on delivery (required)'), '<label class="lbl">' + T('Nachnahme (€)', 'Cash on delivery (€)') + '</label><input type="text" inputmode="decimal" data-f="nachnahme" value="' + esc(f.nachnahme) + '" placeholder="0,00">' +
-        '<button type="button" class="chip mt' + (f.nachnahme === '0' ? ' on' : '') + '" id="nn0" style="width:100%">' + T('Keine Nachnahme heute (0 €)', 'No cash today (0 €)') + '</button>' +
-        (Number(String(f.nachnahme).replace(',', '.')) > 0 ? nnHinweis() : ''));
+      html += card(T('Nachnahme (Pflicht)', 'Cash on delivery (required)'), (f.nnKeine ? '' :
+        f.nn.map((p, i) => '<label class="lbl">' + T('Nachnahme', 'Cash on delivery') + (f.nn.length > 1 ? ' ' + (i + 1) : '') + ' (€)</label><div class="row" style="gap:6px;align-items:center"><input type="text" inputmode="decimal" class="grow" data-nnb="' + i + '" value="' + esc(p.betrag) + '" placeholder="0,00">' +
+          '<button type="button" class="chip' + (p.art === 'bar' ? ' on' : '') + '" data-nnart="' + i + ':bar" style="flex:0 0 auto">💶 ' + T('Bar', 'Cash') + '</button><button type="button" class="chip' + (p.art === 'ec' ? ' on' : '') + '" data-nnart="' + i + ':ec" style="flex:0 0 auto">💳 EC</button>' +
+          (f.nn.length > 1 ? '<button type="button" class="btn small danger" data-nnrm="' + i + '" style="flex:0 0 auto">✕</button>' : '') + '</div>').join('') +
+        '<button type="button" class="btn ghost mt" id="nnplus">+ ' + T('Weitere Nachnahme', 'Add another') + '</button>') +
+        '<button type="button" class="chip mt' + (f.nnKeine ? ' on' : '') + '" id="nn0" style="width:100%">' + T('Keine Nachnahme heute (0 €)', 'No cash today (0 €)') + '</button>' +
+        '<div id="nn-hint">' + (f.nnKeine ? '' : nnHint()) + '</div>');
       html += card(T('Abschluss (Pflicht)', 'Wrap-up (required)'), ynq(f, 'fahrtenbuch', T('Fahrtenbuch ausgefüllt?', 'Logbook filled in?')) + ynq(f, 'sauber', T('Fahrzeug sauber / Müll entfernt?', 'Vehicle clean / rubbish removed?')) +
         ynq(f, 'neueSchaeden', T('Neue Schäden?', 'New damage?'), { redJa: true, whyJa: T('Was ist passiert? (optional)', 'What happened? (optional)'), hint: '⚠️ ' + T('Freiwillig gemeldete Schäden: nur die Selbstbeteiligung der Versicherung. Schäden, die erst durch unsere Auswertung festgestellt werden: 100 € Strafaufschlag und Abmahnung.', 'Damage reported voluntarily: only the insurance deductible. Damage found later by our checks: €100 penalty and a formal warning.') }));
       html += card('', '<label class="lbl">' + A.t('remark') + '</label><textarea data-f="bemerkung">' + esc(f.bemerkung) + '</textarea>');
       html += '<button class="btn" id="ok">■ ' + T('Tour beenden & melden', 'End tour & report') + '</button></main>';
       render(html); window.scrollTo(0, y);
-      $$('[data-f]').forEach(el => el.oninput = () => { f[el.getAttribute('data-f')] = el.value; if (el.getAttribute('data-f') === 'nachnahme') { const was = Number(String(el.dataset.prev || '').replace(',', '.')) > 0, ist = Number(String(el.value).replace(',', '.')) > 0; el.dataset.prev = el.value; if (was !== ist) { draw(); const n = $('[data-f="nachnahme"]'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); } } });
-      const nnIn = $('[data-f="nachnahme"]'); if (nnIn) nnIn.dataset.prev = f.nachnahme;
-      $('#nn0').onclick = () => { f.nachnahme = '0'; draw(); };
+      $$('[data-f]').forEach(el => el.oninput = () => { f[el.getAttribute('data-f')] = el.value; });
+      $$('[data-nnb]').forEach(el => el.oninput = () => { f.nn[Number(el.getAttribute('data-nnb'))].betrag = el.value; const h = $('#nn-hint'); if (h) h.innerHTML = nnHint(); });
+      $$('[data-nnart]').forEach(el => el.onclick = () => { const [i, art] = el.getAttribute('data-nnart').split(':'); f.nn[Number(i)].art = art; draw(); });
+      $$('[data-nnrm]').forEach(el => el.onclick = () => { f.nn.splice(Number(el.getAttribute('data-nnrm')), 1); draw(); });
+      if ($('#nnplus')) $('#nnplus').onclick = () => { f.nn.push({ betrag: '', art: 'bar' }); draw(); const l = $$('[data-nnb]'); if (l.length) l[l.length - 1].focus(); };
+      $('#nn0').onclick = () => { f.nnKeine = !f.nnKeine; if (!f.nnKeine && !f.nn.length) f.nn = [{ betrag: '', art: 'bar' }]; draw(); };
       bindKmFoto(km, 'ke', () => fz ? fz.id : ((b.fahrzeuge || []).find(v => norm(v.kennzeichen) === norm(f.kz)) || {}).id, draw);
       bindYn(f, draw);
       $('#ok').onclick = submit;
     };
     const submit = async () => {
       if (!(await kmFotoPruefen(km))) return;
-      const betrag = Number(String(f.nachnahme).replace(',', '.'));
-      if (f.nachnahme === '' || isNaN(betrag) || betrag < 0) return toast(T('Bitte den Nachnahmebetrag eintragen (0, wenn keine)', 'Enter the cash amount (0 if none)'), true);
+      const posten = f.nnKeine ? [] : f.nn.map(p => ({ betrag: Math.round(nnZahl(p.betrag) * 100) / 100, art: p.art === 'ec' ? 'ec' : 'bar', leer: String(p.betrag).trim() === '' }));
+      if (!f.nnKeine && (!posten.length || posten.some(p => p.leer || isNaN(p.betrag) || p.betrag <= 0))) return toast(T('Bitte jeden Nachnahmebetrag eintragen (Bar oder EC) – oder „Keine Nachnahme heute“ wählen', 'Enter each cash amount (cash or card) – or choose “No cash today”'), true);
+      const betragBar = nnSumme(posten, 'bar'), betrag = Math.round(posten.reduce((a, p) => a + p.betrag, 0) * 100) / 100;
       if (!f.fahrtenbuch || !f.sauber || !f.neueSchaeden) return toast(T('Bitte alle Ja/Nein-Fragen beantworten', 'Please answer all yes/no questions'), true);
       const v = fz || (b.fahrzeuge || []).find(x => norm(x.kennzeichen) === norm(f.kz));
-      const payload = { tour: f.tour, kennzeichen: f.kz, fahrzeugId: v ? v.id : '', kmEnde: Number(km.km), kmFotoId: km.fotoId, nachnahme: betrag,
+      const payload = { tour: f.tour, kennzeichen: f.kz, fahrzeugId: v ? v.id : '', kmEnde: Number(km.km), kmFotoId: km.fotoId, nachnahme: betrag, nachnahmen: posten.map(p => ({ betrag: p.betrag, art: p.art })),
         fahrtenbuch: f.fahrtenbuch, fahrtenbuchGrund: f.fahrtenbuchGrund || '', sauber: f.sauber, sauberGrund: f.sauberGrund || '', neueSchaeden: f.neueSchaeden, schadenGrund: f.neueSchaedenGrund || '', bemerkung: f.bemerkung };
       const senden = async extra => {
         overlay('…');
@@ -503,7 +515,7 @@
           const r = await API.call('endTour', Object.assign(payload, extra || {}), { timeout: 90000 });
           hideOverlay(); state.boot = null;
           render(topbar(T('Gemeldet', 'Reported')) + '<main><div class="card ok center"><div style="font-size:52px">✓</div><h1>' + T('Tour gemeldet', 'Tour reported') + '</h1><p>' + esc(r.tourIst) + ' · ' + esc(r.kennzeichenIst) + ' · ' + fmtKm(r.kmEnde) + ' km</p>' +
-            (r.nachnahme ? '<p>💶 ' + fmtEur(r.nachnahme.betrag) + ' – ' + (r.nachnahme.status === 'offen' ? T('unterschrieben – bitte übergeben, der Empfänger zeichnet in seiner App gegen', 'signed – please hand over, the receiver countersigns in their app') : T('bestätigt von', 'confirmed by') + ' ' + esc(r.nachnahme.empfaenger)) + '</p>' : '') +
+            (r.nachnahmen || (r.nachnahme ? [r.nachnahme] : [])).map(n => n.art === 'ec' ? '<p>💳 EC ' + fmtEur(n.betrag) + ' – ' + T('direkt an UPS, kein Geld abgeben', 'goes directly to UPS, no cash to hand over') + '</p>' : '<p>💶 ' + T('Bar', 'Cash') + ' ' + fmtEur(n.betrag) + ' – ' + (n.status === 'offen' ? T('unterschrieben – bitte übergeben, der Empfänger zeichnet in seiner App gegen', 'signed – please hand over, the receiver countersigns in their app') : T('bestätigt von', 'confirmed by') + ' ' + esc(n.empfaenger)) + '</p>').join('') +
             (r.kmAuffaellig ? '<p class="small danger">' + esc(r.kmAuffaellig) + '</p>' : '') + '</div>' +
             (f.neueSchaeden === 'ja' && v ? '<button class="btn" id="np">⚠️ ' + T('Schaden jetzt melden (Stelle + Foto)', 'Report the damage now (spot + photo)') + '</button>' : '') + '<button class="btn ghost mt" data-nav="home">' + A.t('home') + '</button></main>');
           if ($('#np')) $('#np').onclick = () => A.startDraft({ fahrzeugId: v.id, nurSchaden: true });
@@ -514,7 +526,7 @@
           toast(errMsg(e), true); return false;
         }
       };
-      if (betrag > 0) nachnahmeFahrerSheet(betrag, sig => senden({ sigFahrer: sig }));
+      if (betragBar > 0) nachnahmeFahrerSheet(betragBar, sig => senden({ sigFahrer: sig }));
       else senden();
     };
     draw();
@@ -529,13 +541,13 @@
     let r; try { r = await API.call('nachnahmen', { von: zeitraum.von, bis: zeitraum.bis }); } catch (e) { render(topbar(T('Nachnahmen', 'Cash on delivery'), { back: 'home' }) + '<main>' + card('', '<p class="danger">' + esc(errMsg(e)) + '</p>') + '</main>'); return; }
     let html = topbar(T('Nachnahmen', 'Cash on delivery'), { back: 'home' }) + '<main>';
     html += '<div class="chips two"><button class="chip' + (arg !== 'vormonat' ? ' on' : '') + '" data-nav="nachnahmen">' + T('Dieser Monat', 'This month') + '</button><button class="chip' + (arg === 'vormonat' ? ' on' : '') + '" data-nav="nachnahmen/vormonat">' + T('Letzter Monat', 'Last month') + '</button></div>';
-    html += card('', '<div class="row wrap" style="gap:6px 18px"><span>' + T('Gesamt', 'Total') + ' <b style="font-size:20px">' + fmtEur(r.summe.gesamt) + '</b></span><span class="' + (r.summe.offen ? 'danger' : 'muted') + '">' + T('noch offen', 'still open') + ' <b>' + fmtEur(r.summe.offen) + '</b></span></div>' +
+    html += card('', '<div class="row wrap" style="gap:6px 18px"><span>' + T('Gesamt', 'Total') + ' <b style="font-size:20px">' + fmtEur(r.summe.gesamt) + '</b></span><span class="' + (r.summe.offen ? 'danger' : 'muted') + '">' + T('noch offen', 'still open') + ' <b>' + fmtEur(r.summe.offen) + '</b></span>' + (r.summe.ec ? '<span>💶 ' + T('Bar', 'Cash') + ' <b>' + fmtEur(r.summe.bar || 0) + '</b> · 💳 EC <b>' + fmtEur(r.summe.ec) + '</b></span>' : '') + '</div>' +
       (Object.keys(r.summe.proEmpfaenger).length ? '<p class="small muted" style="margin:8px 0 0">' + Object.keys(r.summe.proEmpfaenger).map(k => esc(k) + ': <b>' + fmtEur(r.summe.proEmpfaenger[k]) + '</b>').join(' · ') + '</p>' : ''), 'gold');
     if (!r.liste.length) html += card('', '<p class="muted" style="margin:0">' + T('Keine Nachnahmen in diesem Zeitraum.', 'No cash on delivery in this period.') + '</p>');
     let tag = '';
     r.liste.forEach(n => {
       if (n.datum !== tag) { tag = n.datum; html += '<h2 class="sec">' + fmtShort(n.datum) + '</h2>'; }
-      html += '<div class="card" style="padding:10px 14px"><div class="row" style="align-items:center"><div class="grow"><b>' + esc(n.name) + '</b>' + (n.tour ? ' <span class="small muted">· ' + esc(n.tour) + '</span>' : '') + '<br><span class="small ' + (n.status === 'offen' ? 'danger' : 'muted') + '">' + (n.status === 'offen' ? T('Erhalt noch nicht bestätigt', 'receipt not confirmed yet') : '✓ ' + T('bestätigt von', 'confirmed by') + ' ' + esc(n.empfaenger) + (n.abgegebenAm ? ' · ' + fmtDT(n.abgegebenAm) : '')) + '</span></div><b style="font-size:18px">' + fmtEur(n.betrag) + '</b></div>' +
+      html += '<div class="card" style="padding:10px 14px"><div class="row" style="align-items:center"><div class="grow"><b>' + esc(n.name) + '</b>' + (n.tour ? ' <span class="small muted">· ' + esc(n.tour) + '</span>' : '') + '<br><span class="small ' + (n.status === 'offen' ? 'danger' : 'muted') + '">' + (n.status === 'offen' ? T('Erhalt noch nicht bestätigt', 'receipt not confirmed yet') : n.status === 'ec' ? '💳 ' + T('EC – direkt an UPS', 'card – directly to UPS') : '✓ ' + T('bestätigt von', 'confirmed by') + ' ' + esc(n.empfaenger) + (n.abgegebenAm ? ' · ' + fmtDT(n.abgegebenAm) : '')) + '</span></div><b style="font-size:18px">' + (n.art === 'ec' ? '💳 ' : '💶 ') + fmtEur(n.betrag) + '</b></div>' +
         (n.status === 'offen' && n.userId !== u().id ? '<button class="btn mt" data-bnn="' + esc(n.id) + '">✓ ' + T('Geld erhalten – bestätigen', 'Cash received – confirm') + '</button>' : '') + '</div>';
     });
     render(html + '</main>');

@@ -7,7 +7,7 @@
   const fmtD = iso => { if (!iso) return ''; const d = new Date(iso); if (isNaN(d)) return String(iso); return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }); };
   const fmtDT = iso => { if (!iso) return ''; const d = new Date(iso); if (isNaN(d)) return String(iso); return fmtD(iso) + ' ' + d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }); };
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16); }));
-  const CODES = { B: 'Beule', D: 'Delle', F: 'Fehlt', G: 'Gebrochen', K: 'Kratzer', R: 'Rost', S: 'Steinschlag', T: 'Techn. Mangel', U: 'Undicht', V: 'Verformung', X: 'Bruch/Riss', A: 'Unfall' };
+  const CODES = { B: 'Beule', D: 'Delle', F: 'Fehlt', G: 'Gebrochen', K: 'Kratzer', R: 'Rost', S: 'Steinschlag', T: 'Techn. Mangel', U: 'Undicht', V: 'Verformung', X: 'Bruch/Riss', A: 'Unfall', Y: 'Graffiti' };
   const INVENTAR = [['schluessel', 'Schlüssel', 1], ['kfz_schein', 'KFZ-Schein', 1], ['reserverad', 'Reserverad', 0], ['tuev_bericht', 'TÜV/AU-Bericht', 0], ['warnweste', 'Warnweste', 1], ['warndreieck', 'Warndreieck', 1], ['verbandskasten', 'Verbandskasten', 1], ['sicherungsnetz', 'Sicherungsnetz', 0], ['sicherungsstange', 'Sicherungsstange', 0], ['steckbolzen', 'Steckbolzen', 0]]; // Kamera Laderaum, Dashcam und Navi seit 1.7.5 nicht mehr abgefragt
   const ANLAESSE = ['wechsel', 'urlaub', 'feierabend', 'werkstatt', 'rueckgabe', 'uebernahme', 'sonstiges']; // „Krankheit“ seit 1.7.5 nicht mehr wählbar (Text bleibt für alte Protokolle)
   const ANLASS_TXT = { wechsel: 'Fahrzeugwechsel', urlaub: 'Urlaub', krank: 'Krankheit', feierabend: 'Feierabend / Abstellen', werkstatt: 'Werkstatt', rueckgabe: 'Rückgabe an Firma', uebernahme: 'Übernahme von Firma', sonstiges: 'Sonstiges' };
@@ -385,19 +385,26 @@
     const d = state.draft; const n = { ansicht: view, x, y, pos3d: pos3d || null, code: '', groesse: 'mittel', text: '', localPhotoId: '' };
     const s = sheet('<h2>' + t('newDamage') + ' · ' + t(VIEW_LBL[view]) + '</h2><h3>' + t('damageCode') + '</h3><div class="chips" id="n-codes">' + Object.keys(CODES).map(c => '<button class="chip" data-code="' + c + '"><b style="font-size:18px">' + c + '</b><span class="sub">' + esc(CODES[c]) + '</span></button>').join('') + '</div>' +
       '<h3 class="mt">' + t('size') + '</h3><div class="chips three" id="n-size">' + ['klein', 'mittel', 'gross'].map(g => '<button class="chip ' + (g === 'mittel' ? 'on' : '') + '" data-size="' + g + '">' + t(g === 'gross' ? 'large' : g === 'klein' ? 'small' : 'medium') + '</button>').join('') + '</div>' +
-      '<label class="lbl">' + (I18N.lang === 'en' ? 'Description (required)' : 'Beschreibung (Pflicht)') + '</label><input type="text" id="n-text" maxlength="120" placeholder="' + (I18N.lang === 'en' ? 'e.g. scratch on sliding door' : 'z. B. Kratzer an der Schiebetür') + '">' +
+      '<label class="lbl" id="n-lbl">' + (I18N.lang === 'en' ? 'Description (required)' : 'Beschreibung (Pflicht)') + '</label><input type="text" id="n-text" maxlength="120" placeholder="' + (I18N.lang === 'en' ? 'e.g. scratch on sliding door' : 'z. B. Kratzer an der Schiebetür') + '">' +
       '<div class="photo-grid mt" style="grid-template-columns:1fr 1fr"><div class="photo-tile req" id="n-photo"><span class="ico">📷</span><div class="cap">' + t('damagePhoto') + '</div></div></div>' +
       '<button class="btn mt" id="n-ok" disabled>' + t('addDamage') + '</button>' +
       '<button class="btn ghost mt" id="n-cancel">' + t('cancel') + ' – ' + t('backToVehicle') + '</button>');
     $('#n-cancel', s.el).onclick = () => s.close();
-    const check = () => { $('#n-ok', s.el).disabled = !(n.code && n.localPhotoId && $('#n-text', s.el).value.trim().length >= 3); };
+    // Beschreibung muss mehr sagen als nur den Code (z. B. nicht nur „Delle“); bei „Gebrochen“: was genau ist gebrochen?
+    const textOk = () => { const v = $('#n-text', s.el).value.trim(); return v.length >= 3 && v.toLowerCase() !== String(CODES[n.code] || '').toLowerCase(); };
+    const setLbl = () => {
+      const en = I18N.lang === 'en'; const g = n.code === 'G';
+      $('#n-lbl', s.el).textContent = g ? (en ? 'What exactly is broken? (required)' : 'Was genau ist gebrochen? (Pflicht)') : (en ? 'Description (required)' : 'Beschreibung (Pflicht)');
+      $('#n-text', s.el).placeholder = g ? (en ? 'e.g. rear light left, windscreen, mirror glass' : 'z. B. Rücklicht links, Frontscheibe, Spiegelglas') : n.code === 'Y' ? (en ? 'e.g. graffiti on rear door' : 'z. B. Graffiti an der Hecktür') : (en ? 'e.g. scratch on sliding door' : 'z. B. Kratzer an der Schiebetür');
+    };
+    const check = () => { $('#n-ok', s.el).disabled = !(n.code && n.localPhotoId && textOk()); };
     $('#n-text', s.el).oninput = check;
-    $$('#n-codes .chip', s.el).forEach(c => c.onclick = () => { n.code = c.getAttribute('data-code'); $$('#n-codes .chip', s.el).forEach(x => x.classList.toggle('on', x === c)); check(); });
+    $$('#n-codes .chip', s.el).forEach(c => c.onclick = () => { n.code = c.getAttribute('data-code'); $$('#n-codes .chip', s.el).forEach(x => x.classList.toggle('on', x === c)); setLbl(); check(); });
     $$('#n-size .chip', s.el).forEach(c => c.onclick = () => { n.groesse = c.getAttribute('data-size'); $$('#n-size .chip', s.el).forEach(x => x.classList.toggle('on', x === c)); });
     $('#n-photo', s.el).onclick = async () => { const id = await takePhoto('schaden'); if (id) { n.localPhotoId = id; const u = await thumbUrl(id); $('#n-photo', s.el).innerHTML = '<img src="' + u + '"><div class="cap">' + t('damagePhoto') + '</div>'; $('#n-photo', s.el).classList.add('done'); check(); } };
     $('#n-ok', s.el).onclick = async () => {
       n.text = $('#n-text', s.el).value.trim();
-      if (n.text.length < 3) return toast(I18N.lang === 'en' ? 'Please describe the damage' : 'Bitte den Schaden kurz beschreiben', true);
+      if (!textOk()) return toast(n.code === 'G' ? (I18N.lang === 'en' ? 'Please write what exactly is broken' : 'Bitte schreib, was genau gebrochen ist') : (I18N.lang === 'en' ? 'Please describe the damage (more than just the code)' : 'Bitte den Schaden kurz beschreiben (mehr als nur den Code)'), true);
       // gleicher Schaden (gleiche Seite, gleiche Art, fast gleiche Stelle) schon bekannt oder schon eingetragen? -> zusammenführen statt doppelt
       const nah = (a, ax, ay) => a.ansicht === n.ansicht && a.code === n.code && Math.hypot((Number(ax) || 0) - (Number(n.x) || 0), (Number(ay) || 0) - (Number(n.y) || 0)) <= 5;
       const bekannt = ((d.ctx && d.ctx.offeneSchaeden) || []).find(k => nah(k, k.x, k.y));
