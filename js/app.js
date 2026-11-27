@@ -391,7 +391,13 @@
       '<button class="btn ghost mt" id="n-cancel">' + t('cancel') + ' – ' + t('backToVehicle') + '</button>');
     $('#n-cancel', s.el).onclick = () => s.close();
     // Beschreibung muss mehr sagen als nur den Code (z. B. nicht nur „Delle“); bei „Gebrochen“: was genau ist gebrochen?
-    const textOk = () => { const v = $('#n-text', s.el).value.trim(); return v.length >= 3 && v.toLowerCase() !== String(CODES[n.code] || '').toLowerCase(); };
+    // nicht nur das Code-Wort oder ein abgeschnittenes Code-Wort (z. B. „Gebroche“, „Dell“, „Kratze“) akzeptieren
+    const nurBuchst = x => String(x || '').toLowerCase().replace(/[^a-zäöüß]/g, '');
+    const textOk = () => {
+      const v = $('#n-text', s.el).value.trim(); if (v.length < 3) return false;
+      const t0 = nurBuchst(v); if (t0.length < 3) return false;
+      return !Object.values(CODES).some(c => { const w = nurBuchst(c); return w.startsWith(t0) || (t0.startsWith(w.slice(0, Math.max(3, w.length - 2))) && t0.length <= w.length + 2); });
+    };
     const setLbl = () => {
       const en = I18N.lang === 'en'; const g = n.code === 'G';
       $('#n-lbl', s.el).textContent = g ? (en ? 'What exactly is broken? (required)' : 'Was genau ist gebrochen? (Pflicht)') : (en ? 'Description (required)' : 'Beschreibung (Pflicht)');
@@ -510,6 +516,7 @@
     const d = state.draft;
     const zt = d.zurTour ? { fahrzeugId: d.fahrzeugId, km: d.km, fotoLocalId: d.fotos && d.fotos.tacho } : null;
     const item = { clientId: d.clientId, draft: d, createdAt: new Date().toISOString() };
+    API.markBusy(d.clientId, true);
     await DB.put('outbox', item);
     overlay(t('sending'));
     try {
@@ -534,7 +541,7 @@
       hideOverlay();
       if (e.code === 'NET' || e.code === 'CONFIG') { state.draft = null; toast(t('queued')); if (zt) { state.tourNach = Object.assign({ ausstehend: true }, zt); go('tourstart'); } else go('home'); }
       else { toast(errMsg(e), true); }
-    }
+    } finally { API.markBusy(d.clientId, false); }
   }
   function viewDone(r, zt) {
     render(topbar(t('sent')) + '<main><div class="card ok center"><div style="font-size:52px">✓</div><h1>' + t('sent') + '</h1><p>' + t('sentNo') + ' <b>' + esc(r.nr) + '</b></p>' +
@@ -742,6 +749,10 @@
   window.addEventListener('vip:logout', () => { state.user = null; state.boot = null; go('login'); });
   window.addEventListener('online', () => { if ((location.hash || '#home') === '#home') route(); });
   window.addEventListener('offline', () => { if ((location.hash || '#home') === '#home') route(); });
+  API.onProgress(ev => {
+    if (ev.type === 'endtour-sent') { toast((I18N.lang === 'en' ? 'Tour end sent' : 'Tourende nachgesendet') + ' ✓'); if ((location.hash || '#home') === '#home') route(); return; }
+    if (ev.type === 'endtour-error') { toast((I18N.lang === 'en' ? 'Tour end could not be sent – please end the tour again: ' : 'Tourende konnte nicht gesendet werden – bitte Tour neu beenden: ') + ev.error, true); return; }
+  });
   API.onProgress(ev => { if (ev.type === 'sent') { toast(t('sent') + ' ' + (ev.result && ev.result.nr || '')); if ((location.hash || '#home') === '#home') route(); } });
   if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) navigator.serviceWorker.register('sw.js').catch(() => { });
   // erst starten, wenn alle Skripte (auch modules.js) geladen sind

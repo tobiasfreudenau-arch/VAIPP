@@ -471,6 +471,7 @@
     const fz = (b.fahrzeuge || []).find(v => v.id === tb.fahrzeugId) || null;
     const f = { tour: tb.tourIst || tb.tour || plan.tour || '', kz: tb.kennzeichenIst || tb.kennzeichen || plan.kennzeichen || '', stopps: '', nnKeine: false, nn: [{ betrag: '', art: 'bar' }], bemerkung: '' };
     const km = { km: '', fotoId: '', fotoUrl: '', ocr: null };
+    const tourDatum = today(); // Datum mitsenden, damit ein später nachgesendetes Tourende den richtigen Tag trifft
     const nnHint = () => (nnSumme(f.nn, 'bar') > 0 ? nnHinweis() : '') + (nnSumme(f.nn, 'ec') > 0 ? nnEcHinweis() : '');
     const draw = () => {
       const y = window.scrollY;
@@ -507,13 +508,13 @@
       const betragBar = nnSumme(posten, 'bar'), betrag = Math.round(posten.reduce((a, p) => a + p.betrag, 0) * 100) / 100;
       if (!f.fahrtenbuch || !f.sauber || !f.neueSchaeden) return toast(T('Bitte alle Ja/Nein-Fragen beantworten', 'Please answer all yes/no questions'), true);
       const v = fz || (b.fahrzeuge || []).find(x => norm(x.kennzeichen) === norm(f.kz));
-      const payload = { tour: f.tour, kennzeichen: f.kz, fahrzeugId: v ? v.id : '', kmEnde: Number(km.km), kmFotoId: km.fotoId, nachnahme: betrag, nachnahmen: posten.map(p => ({ betrag: p.betrag, art: p.art })),
+      const payload = { datum: tourDatum, tour: f.tour, kennzeichen: f.kz, fahrzeugId: v ? v.id : '', kmEnde: Number(km.km), kmFotoId: km.fotoId, nachnahme: betrag, nachnahmen: posten.map(p => ({ betrag: p.betrag, art: p.art })),
         fahrtenbuch: f.fahrtenbuch, fahrtenbuchGrund: f.fahrtenbuchGrund || '', sauber: f.sauber, sauberGrund: f.sauberGrund || '', neueSchaeden: f.neueSchaeden, schadenGrund: f.neueSchaedenGrund || '', bemerkung: f.bemerkung };
       const senden = async extra => {
         overlay('…');
         try {
           const r = await API.call('endTour', Object.assign(payload, extra || {}), { timeout: 90000 });
-          hideOverlay(); state.boot = null;
+          hideOverlay(); state.boot = null; API.removePendingEndTour(tourDatum);
           render(topbar(T('Gemeldet', 'Reported')) + '<main><div class="card ok center"><div style="font-size:52px">✓</div><h1>' + T('Tour gemeldet', 'Tour reported') + '</h1><p>' + esc(r.tourIst) + ' · ' + esc(r.kennzeichenIst) + ' · ' + fmtKm(r.kmEnde) + ' km</p>' +
             (r.nachnahmen || (r.nachnahme ? [r.nachnahme] : [])).map(n => n.art === 'ec' ? '<p>💳 EC ' + fmtEur(n.betrag) + ' – ' + T('direkt an UPS, kein Geld abgeben', 'goes directly to UPS, no cash to hand over') + '</p>' : '<p>💶 ' + T('Bar', 'Cash') + ' ' + fmtEur(n.betrag) + ' – ' + (n.status === 'offen' ? T('unterschrieben – bitte übergeben, der Empfänger zeichnet in seiner App gegen', 'signed – please hand over, the receiver countersigns in their app') : T('bestätigt von', 'confirmed by') + ' ' + esc(n.empfaenger)) + '</p>').join('') +
             (r.kmAuffaellig ? '<p class="small danger">' + esc(r.kmAuffaellig) + '</p>' : '') + '</div>' +
@@ -523,6 +524,14 @@
         } catch (e) {
           hideOverlay();
           if (e.code === 'KM_LOW' && !(extra && extra.kmGrund)) { const g = await askGrund(T('Kilometer niedriger als zuletzt', 'Odometer lower than before'), e.message); if (g) return senden(Object.assign({}, extra || {}, { kmGrund: g })); return false; }
+          // kein Netz / Zeitüberschreitung: Tourende auf dem Handy speichern und automatisch nachsenden
+          if (e.code === 'NET' && API.queueEndTour(Object.assign({}, payload, extra || {}))) {
+            state.boot = null;
+            render(topbar(T('Gespeichert', 'Saved')) + '<main><div class="card center"><div style="font-size:52px">📶</div><h1>' + T('Tourende gespeichert', 'Tour end saved') + '</h1><p>' +
+              T('Gerade kein Netz. Dein Tourende ist auf dem Handy gespeichert und wird automatisch gesendet, sobald wieder Netz da ist. Bitte die App dafür einmal öffnen, wenn du wieder Empfang hast.', 'No connection right now. Your tour end is saved on the phone and will be sent automatically as soon as you have signal again. Please open the app once when you are back online.') +
+              '</p></div><button class="btn ghost mt" data-nav="home">' + A.t('home') + '</button></main>');
+            return true;
+          }
           toast(errMsg(e), true); return false;
         }
       };

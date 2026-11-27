@@ -67,6 +67,7 @@ window.API = (function () {
       // Postausgang
       const outbox = await DB.all('outbox');
       for (const item of outbox) {
+        if (busy.has(item.clientId) || inflight[item.clientId]) continue; // wird gerade von Hand gesendet – nicht doppelt senden
         const open = await pendingPhotos(item.clientId);
         if (open.length) continue;
         try {
@@ -79,10 +80,49 @@ window.API = (function () {
           emit({ type: 'senderror', clientId: item.clientId, error: e.message });
         }
       }
+      // Tourenden, die ohne Netz abgeschickt wurden (endTour ist je Fahrer und Tag idempotent – erneutes Senden überschreibt nur)
+      const u = user();
+      for (const item of pendingEndTours()) {
+        if (!u || item.userId !== u.id) continue;
+        try {
+          const r = await call('endTour', item.payload, { timeout: 90000 });
+          removePendingEndTour(item.userId, item.payload.datum);
+          emit({ type: 'endtour-sent', datum: item.payload.datum, result: r });
+        } catch (e) {
+          if (e.code === 'NET' || e.code === 'AUTH' || e.code === 'CONFIG') break;
+          // inhaltlicher Fehler (z. B. km-Stand prüfen): nicht endlos wiederholen – Fahrer muss die Tour neu beenden
+          removePendingEndTour(item.userId, item.payload.datum);
+          emit({ type: 'endtour-error', datum: item.payload.datum, error: e.message });
+        }
+      }
     } finally { uploading = false; }
   }
 
-  async function submitFromOutbox(item) {
+  // ---------- Tourende-Warteschlange (kein Netz beim Tourende) ----------
+  const ET_KEY = 'vip_pending_endtour';
+  function pendingEndTours() { try { return JSON.parse(localStorage.getItem(ET_KEY) || '[]'); } catch (e) { return []; } }
+  function savePendingEndTours(l) { try { localStorage.setItem(ET_KEY, JSON.stringify(l)); } catch (e) { } }
+  function removePendingEndTour(userId, datum) { savePendingEndTours(pendingEndTours().filter(x => !(x.userId === userId && x.payload.datum === datum))); }
+  function queueEndTour(payload) {
+    const u = user(); if (!u) return false;
+    const l = pendingEndTours().filter(x => !(x.userId === u.id && x.payload.datum === payload.datum));
+    l.push({ userId: u.id, payload: payload, queuedAt: new Date().toISOString() });
+    savePendingEndTours(l); return true;
+  }
+  function hasPendingEndTour(datum) { const u = user(); return !!u && pendingEndTours().some(x => x.userId === u.id && (!datum || x.payload.datum === datum)); }
+
+  // Schutz gegen doppeltes Senden desselben Protokolls (manuelles Senden + automatischer Postausgang gleichzeitig)
+  const busy = new Set(); const inflight = {};
+  function markBusy(clientId, on) { if (on) busy.add(clientId); else busy.delete(clientId); }
+  function submitFromOutbox(item) {
+    if (inflight[item.clientId]) return inflight[item.clientId];
+    const pr = submitFromOutboxInner(item);
+    inflight[item.clientId] = pr;
+    const done = () => { delete inflight[item.clientId]; };
+    pr.then(done, done);
+    return pr;
+  }
+  async function submitFromOutboxInner(item) {
     const photos = await DB.byIndex('photos', 'draft', item.clientId);
     const byLocal = {}; photos.forEach(p => byLocal[p.localId] = p);
     const pid = l => (l && byLocal[l] && byLocal[l].photoId) || '';
@@ -106,5 +146,5 @@ window.API = (function () {
   window.addEventListener('online', () => flush());
   setInterval(() => { if (navigator.onLine) flush(); }, 45000);
 
-  return { call, url, token, user, setSession, clearSession, configured, flush, pendingPhotos, onProgress, blobToDataUrl, uploadPhoto, submitFromOutbox, isUploading: () => uploading };
+  return { call, url, token, user, setSession, clearSession, configured, flush, pendingPhotos, onProgress, blobToDataUrl, uploadPhoto, submitFromOutbox, markBusy, queueEndTour, hasPendingEndTour, removePendingEndTour: d => { const u = user(); if (u) removePendingEndTour(u.id, d); }, isUploading: () => uploading };
 })();
